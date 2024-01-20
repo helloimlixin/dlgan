@@ -30,7 +30,7 @@ import torch.nn.functional as F
 class VectorQuantizer(nn.Module):
     '''Vector Quantizer module of the model.'''
 
-    def __init__(self, num_embeddings, embedding_dim, commitment_cost):
+    def __init__(self, num_embeddings, embedding_dim, commitment_cost, epsilon=1e-10):
         super(VectorQuantizer, self).__init__()
 
         self._embedding_dim = embedding_dim # dimension of the embedding vectors in the codebook
@@ -41,6 +41,9 @@ class VectorQuantizer(nn.Module):
         self._embedding.weight.data.uniform_(-1/self._num_embeddings, 1/self._num_embeddings)
         # the beta term in the paper, controlling the weighting of the commitment loss
         self._commitment_cost = commitment_cost
+
+        # numerical stability
+        self._epsilon = epsilon
 
     def forward(self, inputs):
         # Convert inputs from B x C x H x W to B x H x W x C, which is required by the embedding layer. Here the
@@ -88,6 +91,6 @@ class VectorQuantizer(nn.Module):
         # avg_probs: B x num_embeddings
         avg_probs = torch.mean(encodings, dim=0)
         # codebook perplexity / usage: 1
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + self._epsilon)))
 
         return quantized, vq_loss, perplexity, encodings
