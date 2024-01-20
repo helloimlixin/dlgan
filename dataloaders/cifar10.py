@@ -25,12 +25,11 @@ class get_cifar10_train_loader():
 
     def __init__(self, batch_size):
         self._batch_size = batch_size
-        self._data_variance = 0.0
 
     def __call__(self):
-        dataset = datasets.CIFAR10(root='../data',
+        dataset = datasets.CIFAR10(root='./data',
                                    train=True,
-                                   download=True,
+                                   download=False,
                                    transform=transforms.Compose([
                                         transforms.ToTensor(),
                                         transforms.Normalize((0.5, 0.5, 0.5),
@@ -39,12 +38,13 @@ class get_cifar10_train_loader():
         loader = DataLoader(dataset,
                             batch_size=self._batch_size,
                             shuffle=True,
-                            num_workers=8,
+                            num_workers=0,
                             pin_memory=True) # CUDA only, pin_memory=True enables faster data transfer to CUDA-enabled GPUs.
 
-        self.data_variance = np.var(dataset.data / 255.0)
+        # calculate data variance
+        data_variance = np.var(dataset.data / 255.0)
 
-        return loader
+        return loader, data_variance
 
 class get_cifar10_test_loader():
     '''Get test data loader.'''
@@ -53,9 +53,9 @@ class get_cifar10_test_loader():
         self._batch_size = batch_size
 
     def __call__(self):
-        dataset = datasets.CIFAR10(root='../data',
+        dataset = datasets.CIFAR10(root='./data',
                                    train=False,
-                                   download=True,
+                                   download=False,
                                    transform=transforms.Compose([
                                         transforms.ToTensor(),
                                         transforms.Normalize((0.5, 0.5, 0.5),
@@ -64,7 +64,7 @@ class get_cifar10_test_loader():
         loader = DataLoader(dataset,
                             batch_size=self._batch_size,
                             shuffle=False,
-                            num_workers=8,
+                            num_workers=0,
                             pin_memory=True) # CUDA only, pin_memory=True enables faster data transfer to CUDA-enabled GPUs.
 
         return loader

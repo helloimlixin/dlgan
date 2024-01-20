@@ -49,7 +49,7 @@ class ResidualBlock(nn.Module):
         )
 
     def forward(self, x):
-        return self.main(x) + x # skip connection
+        return x + self.main(x) # skip connection
 
 class ResidualStack(nn.Module):
     """Residual Stack for the encoder and decoder networks."""
@@ -58,10 +58,9 @@ class ResidualStack(nn.Module):
 
         self._num_residual_layers = num_residual_layers
 
-        self._layers = nn.ModuleList([ResidualBlock(in_channels=in_channels,
-                                                 num_hiddens=num_hiddens,
+        self._layers = nn.ModuleList([ResidualBlock(in_channels=in_channels, num_hiddens=num_hiddens,
                                                     num_residual_hiddens=num_residual_hiddens)
-                                   for _ in range(self._num_residual_layers)])
+                                      for _ in range(self._num_residual_layers)])
 
     def forward(self, x):
         for i in range(self._num_residual_layers):

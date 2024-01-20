@@ -72,8 +72,6 @@ class VectorQuantizer(nn.Module):
 
         # quantized: BHW x C
         quantized = torch.matmul(encodings, self._embedding.weight).view(input_shape) # B x H x W x C
-        # quantized: B x C x H x W
-        quantized = quantized.permute(0, 3, 1, 2).contiguous()
 
         # compute the commitment loss
         # commitment_loss: B x 1 x H x W
@@ -93,4 +91,4 @@ class VectorQuantizer(nn.Module):
         # codebook perplexity / usage: 1
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + self._epsilon)))
 
-        return quantized, vq_loss, perplexity, encodings
+        return vq_loss, quantized.permute(0, 3, 1, 2).contiguous(), perplexity, encodings

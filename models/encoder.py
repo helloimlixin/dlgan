@@ -54,7 +54,9 @@ class Encoder(nn.Module):
                                              num_residual_hiddens=num_residual_hiddens)
 
     def forward(self, x):
-        x = F.relu(self._conv_1(x))
-        x = F.relu(self._conv_2(x))
+        x = self._conv_1(x)
+        x = F.relu(x)
+        x = self._conv_2(x)
+        x = F.relu(x)
         x = self._conv_3(x)
         return self._residual_stack(x)

@@ -18,16 +18,15 @@
 import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-
 from dataloaders.cifar10 import get_cifar10_train_loader, get_cifar10_test_loader
 from models.vqvae import VQVAE
-
+import numpy as np
 import time
 
 # hyperparameters
 train_batch_size = 256
 test_batch_size = 32
-num_training_updates = 20000
+num_training_updates = 50000
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -40,12 +39,12 @@ commitment_cost = 0.25
 
 decay = 0
 
-learning_rate = 1e-3
+learning_rate = 1e-4
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # data loaders
-train_loader = get_cifar10_train_loader(batch_size=train_batch_size)()
+train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
 test_loader = get_cifar10_test_loader(batch_size=test_batch_size)()
 
 # model
@@ -56,30 +55,33 @@ model = VQVAE(in_channels=3,
               num_embeddings=num_embeddings,
               embedding_dim=embedding_dim,
               commitment_cost=commitment_cost,
-              decay=decay)
+              decay=decay).to(device)
 
 # optimizer
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, amsgrad=False)
 
 # loss function
 def loss_function(recon_x, x):
-    recon_error = F.mse_loss(recon_x, x) / train_loader.data_variance
+    recon_error = F.mse_loss(recon_x, x) / data_variance
     return recon_error
 
 def train():
     '''Train the model.'''
+    train_res_recon_error = []
+    train_res_perplexity = []
+
     model.train() # set the model to training mode
     writer = SummaryWriter() # create a writer object for TensorBoard
 
     for i in range(num_training_updates):
-        optimizer.zero_grad()
-
         # sample the mini-batch
         (x,_) = next(iter(train_loader))
         x = x.to(device)
 
+        optimizer.zero_grad() # clear the gradients
+
         # forward pass
-        vq_loss, data_recon, perplexity, encodings = model(x)
+        vq_loss, data_recon, perplexity, quantized = model(x)
         recon_error = loss_function(data_recon, x)
         loss = recon_error + vq_loss # total loss
 
@@ -90,42 +92,52 @@ def train():
         optimizer.step()
 
         # print training information
-        if (i+1) % 100 == 0:
-            print('%d iterations' % (i+1))
-            print('recon_error: %.3f' % recon_error.item())
-            print('vq_loss: %.3f' % vq_loss.item())
+        if (i + 1) % 100 == 0:
+            print('%d iterations' % (i + 1))
+            print('recon_error: %.3f' % np.mean(train_res_recon_error[-100:]))
+            print('perplexity: %.3f' % np.mean(train_res_perplexity[-100:]))
             print()
 
-        # write to TensorBoard
-        writer.add_scalar('loss/recon_error', recon_error.item(), i+1)
-        writer.add_scalar('loss/vq_loss', vq_loss.item(), i+1)
-        writer.add_scalar('loss/loss', loss.item(), i+1)
+        originals = x + 0.5 # add 0.5 to match the range of the original images [0, 1]
+        reconstructions = data_recon + 0.5 # add 0.5 to match the range of the original images [0, 1]
 
-        # write images to TensorBoard
-        if (i+1) % 100 == 0:
-            writer.add_images('data_recon', data_recon, i+1)
-            writer.add_images('data', x, i+1)
+        # save training information for TensorBoard
+        writer.add_scalar('Train Recon Error', recon_error.item(), i+1)
+        writer.add_scalar('Train Perplexity', perplexity.item(), i+1)
+        writer.add_scalar('Train Loss', loss.item(), i+1)
 
-        # write model parameters to TensorBoard
-        if (i+1) % 100 == 0:
-            for name, param in model.named_parameters():
-                writer.add_histogram(name, param.clone().cpu().data.numpy(), i+1)
+        # save training information for plotting
+        train_res_recon_error.append(recon_error.item())
+        train_res_perplexity.append(perplexity.item())
 
-        # write embeddings to TensorBoard
-        if (i+1) % 100 == 0:
-            writer.add_embedding(model._vq_bottleneck._embedding.weight.clone().cpu().data, global_step=i+1)
+        # save the model graph
+        if i == 0:
+            writer.add_graph(model, x)
 
-        # write model to TensorBoard
-        if (i+1) % 100 == 0:
-            writer.add_graph(model, data_recon)
+        # save the model
+        if (i + 1) % 1000 == 0:
+            torch.save(model.state_dict(), 'vqvae_%d.pt' % (i + 1))
 
-        # write model to ONNX
-        if (i+1) % 100 == 0:
-            torch.onnx.export(model, data_recon, 'vqvae.onnx', verbose=True)
+        # save the reconstructed images
+        if (i + 1) % 100 == 0:
 
-        # write model to TorchScript
-        if (i+1) % 100 == 0:
-            torch.jit.save(torch.jit.script(model), 'vqvae.pt')
+            writer.add_images('Train Original Images', originals, i+1)
+            writer.add_images('Train Reconstructed Images', reconstructions, i+1)
+
+        # save the codebook
+        if (i + 1) % 100 == 0:
+            writer.add_embedding(quantized.view(train_batch_size, -1), label_img=originals, global_step=i+1)
+
+        # save the training information
+        if (i + 1) % 100 == 0:
+            np.save('train_res_recon_error.npy', train_res_recon_error)
+            np.save('train_res_perplexity.npy', train_res_perplexity)
+
+        # save the model
+        if (i + 1) % 1000 == 0:
+            torch.save(model.state_dict(), 'vqvae_%d.pt' % (i + 1))
+
+    writer.close()
 
 if __name__ == '__main__':
     start = time.time()

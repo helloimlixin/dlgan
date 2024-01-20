@@ -63,4 +63,4 @@ class VQVAE(nn.Module):
         loss, quantized, perplexity, encodings = self._vq_bottleneck(z)
         x_recon = self._decoder(quantized)
 
-        return loss, x_recon, perplexity, encodings
+        return loss, x_recon, perplexity, quantized
