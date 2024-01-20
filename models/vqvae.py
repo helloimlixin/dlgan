@@ -19,7 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .encoder import Encoder
 from .decoder import Decoder
-from .vqvae import VectorQuantizer
+from .vector_quantizer import VectorQuantizer
 
 class VQVAE(nn.Module):
     '''VQ-VAE model.'''
