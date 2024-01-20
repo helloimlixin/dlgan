@@ -25,6 +25,7 @@ from .helpers import ResidualStack
 
 class Decoder(nn.Module):
     '''Decoder module of the model.'''
+
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens):
         super(Decoder, self).__init__()
 

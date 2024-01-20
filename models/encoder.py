@@ -25,7 +25,8 @@ import torch.nn.functional as F
 from .helpers import ResidualStack
 
 class Encoder(nn.Module):
-    ''''Encoder module of the model.'''
+    '''Encoder module of the model.'''
+
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens):
         super(Encoder, self).__init__()
 
