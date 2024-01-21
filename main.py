@@ -22,6 +22,10 @@ from dataloaders.cifar10 import get_cifar10_train_loader, get_cifar10_test_loade
 from models.vqvae import VQVAE
 import numpy as np
 import time
+import os
+
+# fix the bug of "OMP: Error #15: Initializing libiomp5.dylib, but found libiomp5.dylib already initialized."
+os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
 train_batch_size = 256
@@ -103,6 +107,7 @@ def train():
 
         # save training information for TensorBoard
         writer.add_scalar('Train Recon Error', recon_error.item(), i+1)
+        writer.add_scalar('Train VQ Loss', vq_loss.item(), i+1)
         writer.add_scalar('Train Perplexity', perplexity.item(), i+1)
         writer.add_scalar('Train Loss', loss.item(), i+1)
 
@@ -114,19 +119,20 @@ def train():
         if i == 0:
             writer.add_graph(model, x)
 
-        # save the model
-        if (i + 1) % 1000 == 0:
-            torch.save(model.state_dict(), 'vqvae_%d.pt' % (i + 1))
-
         # save the reconstructed images
         if (i + 1) % 100 == 0:
-
             writer.add_images('Train Original Images', originals, i+1)
             writer.add_images('Train Reconstructed Images', reconstructions, i+1)
 
         # save the codebook
         if (i + 1) % 100 == 0:
             writer.add_embedding(quantized.view(train_batch_size, -1), label_img=originals, global_step=i+1)
+
+        # save the gradient visualization
+        if (i + 1) % 100 == 0:
+            for name, param in model.named_parameters():
+                writer.add_histogram(name, param.clone().cpu().data.numpy(), i+1)
+                writer.add_histogram(name+'/grad', param.grad.clone().cpu().data.numpy(), i+1)
 
         # save the training information
         if (i + 1) % 100 == 0:
@@ -135,7 +141,7 @@ def train():
 
         # save the model
         if (i + 1) % 1000 == 0:
-            torch.save(model.state_dict(), 'vqvae_%d.pt' % (i + 1))
+            torch.save(model.state_dict(), './checkpoints/vqvae_%d.pt' % (i + 1))
 
     writer.close()
 
