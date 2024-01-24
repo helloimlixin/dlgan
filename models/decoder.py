@@ -21,13 +21,14 @@
 
 import torch.nn as nn
 import torch.nn.functional as F
-from .helpers import ResidualStack
+from .helpers import ResidualStack, ResidualBlock, NonLocalBlock, UpSampleBlock, GroupNorm, Swish
 
-class Decoder(nn.Module):
-    '''Decoder module of the model.'''
+
+class VQVAEDecoder(nn.Module):
+    '''Decoder module of the vanilla VQ-VAE model.'''
 
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens):
-        super(Decoder, self).__init__()
+        super(VQVAEDecoder, self).__init__()
 
         self._conv_1 = nn.Conv2d(in_channels=in_channels,
                                  out_channels=num_hiddens,
@@ -59,3 +60,44 @@ class Decoder(nn.Module):
         x = F.relu(x)
 
         return self._conv_trans_2(x)
+
+
+class VQGANDecoder(nn.Module):
+    '''Decoder module of the VQ-GAN model.
+
+    References:
+        - Esser, P., Rombach, R., & Ommer, B. (2021).
+            Taming Transformers for High-Resolution Image Synthesis. arXiv preprint arXiv:2103.17239.
+    '''
+    def __init__(self, args):
+        super(VQGANDecoder, self).__init__()
+        channels = [512, 256, 256, 128, 128]
+        attention_resolutions = [16]
+        num_res_blocks = 3
+        resolution = 16
+
+        in_channels = channels[0]
+        layers = [nn.Conv2d(args.latent_dim, in_channels, 3, 1, 1),
+                  ResidualBlock(in_channels, in_channels),
+                  NonLocalBlock(in_channels),
+                  ResidualBlock(in_channels, in_channels)]
+
+        for i in range(len(channels) - 1):
+            out_channels = channels[i + 1]
+            for j in range(num_res_blocks):
+                layers.append(ResidualBlock(in_channels, out_channels))
+                in_channels = out_channels
+                if resolution in attention_resolutions:
+                    layers.append(NonLocalBlock(out_channels))
+            if i != 0:
+                layers.append(UpSampleBlock(in_channels, out_channels))
+                resolution *= 2
+
+        layers.append(GroupNorm(in_channels))
+        layers.append(Swish())
+        layers.append(nn.Conv2d(in_channels, args.image_channels, 3, 1, 1))
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.model(x)
+

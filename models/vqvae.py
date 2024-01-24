@@ -17,9 +17,9 @@
 
 import torch.nn as nn
 import torch.nn.functional as F
-from .encoder import Encoder
-from .decoder import Decoder
-from .vector_quantizer import VectorQuantizer
+from .encoder import VQVAEEncoder
+from .decoder import VQVAEDecoder
+from .codebook import VQVAECodebookVanilla
 
 class VQVAE(nn.Module):
     '''VQ-VAE model.'''
@@ -28,7 +28,7 @@ class VQVAE(nn.Module):
                  embedding_dim, commitment_cost, epsilon=1e-10, decay=0):
         super(VQVAE, self).__init__()
 
-        self._encoder = Encoder(in_channels=in_channels,
+        self._encoder = VQVAEEncoder(in_channels=in_channels,
                                 num_hiddens=num_hiddens,
                                 num_residual_layers=num_residual_layers,
                                 num_residual_hiddens=num_residual_hiddens)
@@ -39,20 +39,20 @@ class VQVAE(nn.Module):
                                       stride=1)
 
         # if decay > 0.0:
-        #     self._vq_vae = VectorQuantizerEMA(num_embeddings=num_embeddings,
+        #     self._vq_vae = VectorQuantizerEMA(_num_embeddings=_num_embeddings,
         #                                       embedding_dim=embedding_dim,
         #                                       commitment_cost=commitment_cost,
         #                                       decay=decay)
         # else:
-        #     self._vq_vae = VectorQuantizer(num_embeddings=num_embeddings,
+        #     self._vq_vae = VectorQuantizer(_num_embeddings=_num_embeddings,
         #                                    embedding_dim=embedding_dim,
         #                                    commitment_cost=commitment_cost)
 
-        self._vq_bottleneck = VectorQuantizer(num_embeddings=num_embeddings,
-                                       embedding_dim=embedding_dim,
-                                       commitment_cost=commitment_cost)
+        self._vq_bottleneck = VQVAECodebookVanilla(num_embeddings=num_embeddings,
+                                                   embedding_dim=embedding_dim,
+                                                   commitment_cost=commitment_cost)
 
-        self._decoder = Decoder(in_channels=embedding_dim,
+        self._decoder = VQVAEDecoder(in_channels=embedding_dim,
                                 num_hiddens=num_hiddens,
                                 num_residual_layers=num_residual_layers,
                                 num_residual_hiddens=num_residual_hiddens)
