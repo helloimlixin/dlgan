@@ -1,5 +1,5 @@
 #  ==============================================================================
-#  Description: This file defines the decoder module of the model.
+#  Description: This file defines the decoder modules of the model.
 #  Copyright (C) 2024 Xin Li
 #
 # References:

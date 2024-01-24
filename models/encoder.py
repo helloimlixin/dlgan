@@ -1,5 +1,5 @@
 #==============================================================================
-# Description: This file defines the encoder module of the model.
+# Description: This file defines the encoder modules of the model.
 #
 # References:
 #   - Van Den Oord, A., & Vinyals, O. (2017). Neural discrete representation learning.
