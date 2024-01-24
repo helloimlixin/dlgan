@@ -91,7 +91,7 @@ class VQGANEncoder(nn.Module):
         layers.append(ResidualBlock(channels[-1], channels[-1]))
         layers.append(GroupNorm(channels[-1]))
         layers.append(Swish())
-        layers.append(nn.Conv2d(channels[-1], args.latent_dim, 3, 1, 1))
+        layers.append(nn.Conv2d(channels[-1], args.embedding_dim, 3, 1, 1))
         self.model = nn.Sequential(*layers)
 
     def forward(self, x):

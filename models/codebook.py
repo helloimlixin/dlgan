@@ -103,7 +103,7 @@ class VQGANCodebook(nn.Module):
         super(VQGANCodebook, self).__init__()
 
         self._num_embeddings = args.num_embeddings
-        self._embedding_dim = args.latent_dim
+        self._embedding_dim = args.embedding_dim
         self._beta = args.beta
 
         self._embedding = nn.Embedding(self._num_embeddings, self._embedding_dim)

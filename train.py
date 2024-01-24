@@ -30,7 +30,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 256
 test_batch_size = 32
-num_training_updates = 50000
+num_training_updates = 100000
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -44,6 +44,8 @@ commitment_cost = 0.25
 decay = 0
 
 learning_rate = 1e-4
+
+epsilon = 1e-10 # a small number to avoid the numerical issues
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -75,7 +77,7 @@ def train():
     train_res_perplexity = []
 
     model.train() # set the model to training mode
-    writer = SummaryWriter() # create a writer object for TensorBoard
+    writer = SummaryWriter('./runs/vanilla') # create a writer object for TensorBoard
 
     for i in range(num_training_updates):
         # sample the mini-batch
@@ -87,6 +89,7 @@ def train():
         # forward pass
         vq_loss, data_recon, perplexity, quantized = model(x)
         recon_error = loss_function(data_recon, x)
+
         loss = recon_error + vq_loss # total loss
 
         # backward pass
@@ -141,7 +144,7 @@ def train():
 
         # save the model
         if (i + 1) % 1000 == 0:
-            torch.save(model.state_dict(), './checkpoints/vqvae_%d.pt' % (i + 1))
+            torch.save(model.state_dict(), './checkpoints/vanilla/vqvae_%d.pt' % (i + 1))
 
     writer.close()
 
