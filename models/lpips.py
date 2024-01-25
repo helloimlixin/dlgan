@@ -1,5 +1,5 @@
 #  ==============================================================================
-#  Description: LPIPS loss module of the model.
+#  Description: LPIPS loss module of the vqvae.
 #  Copyright (C) 2024 Xin Li
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,7 +19,7 @@ import torch
 import torch.nn as nn
 from torchvision.models import vgg16
 from collections import namedtuple  # to create a named tuple
-import requests  # to download the pretrained model
+import requests  # to download the pretrained vqvae
 from tqdm import tqdm  # to show the download progress
 
 URL_MAP = {
@@ -123,9 +123,7 @@ class LPIPS(nn.Module):
         diffs = {}  # dictionary to store the differences between the features
 
         for i in range(len(self.channels)):
-            diffs[i] = (
-                               norm_tensor(features_real[i]) - norm_tensor(features_fake[i])
-                       ) ** 2  # calculate the Euclidean distance between the features layer by layer
+            diffs[i] = (norm_tensor(features_real[i]) - norm_tensor(features_fake[i])) ** 2  # calculate the Euclidean distance between the features layer by layer
 
         return sum(
             [

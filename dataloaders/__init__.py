@@ -1,5 +1,5 @@
 #  ==============================================================================
-#  Description: Helper functions for the model.
+#  Description: Helper functions for the vqvae.
 #  Copyright (C) 2024 Xin Li
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");

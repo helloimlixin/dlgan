@@ -1,5 +1,5 @@
 #  ==============================================================================
-#  Description: VQGAN model.
+#  Description: VQGAN vqvae.
 #  Copyright (C) 2024 Xin Li
 #
 #  References:
@@ -25,14 +25,14 @@ from .decoder import VQGANDecoder
 from .codebook import VQGANCodebook
 
 class VQGAN(nn.Module):
-    '''VQ-GAN model.
+    '''VQ-GAN vqvae.
 
     Reference:
      - Taming Transformers for High-Resolution Image Synthesis
        https://arxiv.org/abs/2012.09841
     '''
     def __init__(self, args):
-        super(VQGAN).__init__()
+        super(VQGAN, self).__init__()
 
         self._encoder = VQGANEncoder(args).to(device=args.device)
         self._codebook = VQGANCodebook(args).to(device=args.device)
@@ -75,7 +75,7 @@ class VQGAN(nn.Module):
     def calculate_lambda(self, perceptual_loss, gan_loss, epsilon=1e-4, max_lambda=1e4, scale=0.8):
         '''Calculate the lambda value for the loss function.
         '''
-        ell = self.decoder.model[-1] # the last layer of the decoder
+        ell = self._decoder.model[-1] # the last layer of the decoder
         ell_weight = ell.weight
         perceptual_loss_gradients = torch.autograd.grad(perceptual_loss, ell_weight, retain_graph=True)[0]
         gan_loss_gradients = torch.autograd.grad(gan_loss, ell_weight, retain_graph=True)[0]
@@ -95,6 +95,6 @@ class VQGAN(nn.Module):
         return disc_factor
 
     def load_checkpoint(self, path):
-        self.load_state_dict(torch.load(path, map_location=self.device))
+        self.load_state_dict(torch.load(path))
 
 

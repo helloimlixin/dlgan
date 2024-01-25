@@ -1,5 +1,5 @@
 #  ==============================================================================
-#  Description: This file defines the vector quantizer module of the model.
+#  Description: This file defines the vector quantizer module of the vqvae.
 #  Copyright (C) 2024 Xin Li
 #
 # References:
@@ -28,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class VQVAECodebookVanilla(nn.Module):
-    '''Vector Quantizer module (codebook) of the model.'''
+    '''Vector Quantizer module (codebook) of the vqvae.'''
 
     def __init__(self, num_embeddings, embedding_dim, commitment_cost, epsilon=1e-10):
         super(VQVAECodebookVanilla, self).__init__()
@@ -93,7 +93,7 @@ class VQVAECodebookVanilla(nn.Module):
         return vq_loss, z_q.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
 
 class VQGANCodebook(nn.Module):
-    '''Vector Quantizer module (codebook) of the model.
+    '''Vector Quantizer module (codebook) of the vqvae.
 
     References:
         - Esser, P., Rombach, R., & Ommer, B. (2021).

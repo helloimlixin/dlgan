@@ -1,5 +1,5 @@
 #  ==============================================================================
-#  Description: This file defines the decoder modules of the model.
+#  Description: This file defines the decoder modules of the vqvae.
 #  Copyright (C) 2024 Xin Li
 #
 # References:
@@ -25,7 +25,7 @@ from .helpers import ResidualStack, ResidualBlock, NonLocalBlock, UpSampleBlock,
 
 
 class VQVAEDecoder(nn.Module):
-    '''Decoder module of the vanilla VQ-VAE model.'''
+    '''Decoder module of the vanilla VQ-VAE vqvae.'''
 
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens):
         super(VQVAEDecoder, self).__init__()
@@ -63,7 +63,7 @@ class VQVAEDecoder(nn.Module):
 
 
 class VQGANDecoder(nn.Module):
-    '''Decoder module of the VQ-GAN model.
+    '''Decoder module of the VQ-GAN vqvae.
 
     References:
         - Esser, P., Rombach, R., & Ommer, B. (2021).
@@ -82,20 +82,20 @@ class VQGANDecoder(nn.Module):
                   NonLocalBlock(in_channels),
                   ResidualBlock(in_channels, in_channels)]
 
-        for i in range(len(channels) - 1):
-            out_channels = channels[i + 1]
+        for i in range(len(channels)):
+            out_channels = channels[i]
             for j in range(num_res_blocks):
                 layers.append(ResidualBlock(in_channels, out_channels))
                 in_channels = out_channels
                 if resolution in attention_resolutions:
                     layers.append(NonLocalBlock(out_channels))
             if i != 0:
-                layers.append(UpSampleBlock(in_channels, out_channels))
+                layers.append(UpSampleBlock( in_channels))
                 resolution *= 2
 
         layers.append(GroupNorm(in_channels))
         layers.append(Swish())
-        layers.append(nn.Conv2d(in_channels, args.image_channels, 3, 1, 1))
+        layers.append(nn.Conv2d(in_channels, args.num_channels, 3, 1, 1))
         self.model = nn.Sequential(*layers)
 
     def forward(self, x):

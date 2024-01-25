@@ -1,5 +1,5 @@
 #  ==============================================================================
-#  Description: Helper functions for the model.
+#  Description: Helper functions for the vqvae.
 #  Copyright (C) 2024 Xin Li
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,7 +22,7 @@ from .decoder import VQVAEDecoder
 from .codebook import VQVAECodebookVanilla
 
 class VQVAE(nn.Module):
-    '''VQ-VAE model.'''
+    '''VQ-VAE vqvae.'''
 
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, num_embeddings,
                  embedding_dim, commitment_cost, epsilon=1e-10, decay=0):

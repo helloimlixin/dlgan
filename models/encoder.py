@@ -1,5 +1,5 @@
 #==============================================================================
-# Description: This file defines the encoder modules of the model.
+# Description: This file defines the encoder modules of the vqvae.
 #
 # References:
 #   - Van Den Oord, A., & Vinyals, O. (2017). Neural discrete representation learning.
@@ -25,7 +25,7 @@ import torch.nn.functional as F
 from .helpers import ResidualBlock, ResidualStack, NonLocalBlock, DownSampleBlock, UpSampleBlock, GroupNorm, Swish
 
 class VQVAEEncoder(nn.Module):
-    '''Encoder module of the original VQ-VAE model.'''
+    '''Encoder module of the original VQ-VAE vqvae.'''
 
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens):
         super(VQVAEEncoder, self).__init__()
@@ -62,7 +62,7 @@ class VQVAEEncoder(nn.Module):
         return self._residual_stack(x)
 
 class VQGANEncoder(nn.Module):
-    '''Encoder module of the VQ-GAN model.
+    '''Encoder module of the VQ-GAN vqvae.
 
     References:
         - Esser, P., Rombach, R., & Ommer, B. (2021).
@@ -70,11 +70,12 @@ class VQGANEncoder(nn.Module):
     '''
     def __init__(self, args):
         super(VQGANEncoder, self).__init__()
+
         channels = [128, 128, 128, 256, 256, 512]
         attention_resolutions = [16]
         num_res_blocks = 2
         resolution = 256
-        layers = [nn.Conv2d(args.image_channels, channels[0], 3, 1, 1)]
+        layers = [nn.Conv2d(args.num_channels, channels[0], 3, 1, 1)]
         for i in range(len(channels) - 1):
             in_channels = channels[i]
             out_channels = channels[i + 1]
@@ -84,7 +85,7 @@ class VQGANEncoder(nn.Module):
                 if resolution in attention_resolutions:
                     layers.append(NonLocalBlock(out_channels))
             if i != len(channels) - 2:
-                layers.append(DownSampleBlock(in_channels, out_channels))
+                layers.append(DownSampleBlock(channels[i + 1]))
                 resolution //= 2
         layers.append(ResidualBlock(channels[-1], channels[-1]))
         layers.append(NonLocalBlock(channels[-1]))

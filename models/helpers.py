@@ -1,5 +1,5 @@
 #==============================================================================
-# Description: Helper functions for the model.
+# Description: Helper functions for the vqvae.
 #
 # References:
 #   - He, K., Zhang, X., Ren, S., & Sun, J. (2016).
@@ -69,7 +69,7 @@ class Swish(nn.Module):
         return x * torch.sigmoid(x)
 
 
-class ResidualBlock(nn.Module):
+class ResNetBlock(nn.Module):
     '''Residual Block to build up the encoder and the decoder networks.
 
     References:
@@ -79,7 +79,7 @@ class ResidualBlock(nn.Module):
     '''
 
     def __init__(self, in_channels, num_hiddens, num_residual_hiddens):
-        super(ResidualBlock, self).__init__()
+        super(ResNetBlock, self).__init__()
 
         self.in_channels = in_channels
         self.num_hiddens = num_hiddens
@@ -116,6 +116,34 @@ class ResidualBlock(nn.Module):
         else:
             return x + self.block(x) # skip connection
 
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResidualBlock, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.block = nn.Sequential(
+            GroupNorm(in_channels),
+            Swish(),
+            nn.Conv2d(
+                in_channels, out_channels, kernel_size=3, stride=1, padding=1),
+            GroupNorm(out_channels),
+            Swish(),
+            nn.Conv2d(
+                out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        )
+
+        if in_channels != out_channels:
+            self.channel_up = nn.Conv2d(
+                in_channels, out_channels, kernel_size=1, stride=1, padding=0)
+
+    def forward(self, x):
+        if self.in_channels != self.out_channels:  # handle dimension mismatch for skip connections
+            return self.channel_up(x) + self.block(x)
+        else:
+            return x + self.block(x)  # skip connection
+
+
 class ResidualStack(nn.Module):
     '''Residual Stack for the encoder and decoder networks.
 
@@ -129,7 +157,7 @@ class ResidualStack(nn.Module):
 
         self._num_residual_layers = num_residual_layers
 
-        self._layers = nn.ModuleList([ResidualBlock(in_channels=in_channels, num_hiddens=num_hiddens,
+        self._layers = nn.ModuleList([ResNetBlock(in_channels=in_channels, num_hiddens=num_hiddens,
                                                     num_residual_hiddens=num_residual_hiddens)
                                       for _ in range(self._num_residual_layers)] + [Swish()])
 
@@ -141,51 +169,34 @@ class ResidualStack(nn.Module):
 
 
 class UpSampleBlock(nn.Module):
-    '''UpSample Block to build up the decoder network.
+    '''Up-Sample Block, consists of a single convolutional layer and an additional
+    prescale of the input features, resulting in a 2x up-sampling of the input.
+    '''
 
-    References:
-        - Odena, A., Dumoulin, V., & Olah, C. (2016). Deconvolution and checkerboard artifacts. Distill, 1(10), e3.
-        '''
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
+    def __init__(self, channels):
         super(UpSampleBlock, self).__init__()
-
-        self._block = nn.Sequential(
-            GroupNorm(num_channels=in_channels),
-            Swish(),
-            nn.ConvTranspose2d(in_channels=in_channels,
-                               out_channels=out_channels,
-                               kernel_size=kernel_size,
-                               stride=stride,
-                               padding=padding,
-                               bias=False)
-        )
+        self.conv = nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
-        return self._block(x)
+        x = F.interpolate(x, scale_factor=2)  # up-sample by nearest-neighbor interpolation
+        return self.conv(x)
 
 
 class DownSampleBlock(nn.Module):
-    '''DownSample Block to build up the encoder network.
-
-    References:
-        - Odena, A., Dumoulin, V., & Olah, C. (2016). Deconvolution and checkerboard artifacts. Distill, 1(10), e3.
+    '''Just a reverse of UpSampleBlock, consists of a single convolutional layer and
+    a padding operation before the downsampling operation, resulting in a 2x down-sampling
+    of the input, off by 1 pixel.
     '''
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
-        super(DownSampleBlock, self).__init__()
 
-        self._block = nn.Sequential(
-            nn.Conv2d(in_channels=in_channels,
-                      out_channels=out_channels,
-                      kernel_size=kernel_size,
-                      stride=stride,
-                      padding=padding,
-                      bias=False),
-            GroupNorm(num_channels=out_channels),
-            Swish()
-        )
+    def __init__(self, channels) -> None:
+        super(DownSampleBlock, self).__init__()
+        self.conv = nn.Conv2d(channels, channels, kernel_size=3, stride=2, padding=0)
 
     def forward(self, x):
-        return self._block(x)
+        padding = (0, 1, 0, 1)
+        x = F.pad(x, padding, mode='constant', value=0)
+
+        return self.conv(x)
 
 
 class NonLocalBlockOriginal(nn.Module):
@@ -258,51 +269,44 @@ class NonLocalBlockOriginal(nn.Module):
 
 
 class NonLocalBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(NonLocalBlock, self).__init__()
-        self._in_channels = in_channels
+    '''
+    Non-local block, used for long-range dependencies. It is a generalization of
+    the self-attention mechanism. See,
+    Wang, Xiaolong, et al. "Non-local neural networks."
+    Proceedings of the IEEE conference on computer vision and
+    pattern recognition. 2018.
+    '''
 
-        self.group_norm = GroupNorm(num_channels=self._in_channels)
-        self.q = nn.Conv2d(in_channels=self._in_channels,
-                            out_channels=out_channels,
-                            kernel_size=1,
-                            stride=1,
-                            padding=0)
-        self.k = nn.Conv2d(in_channels=self._in_channels,
-                            out_channels=out_channels,
-                            kernel_size=1,
-                            stride=1,
-                            padding=0)
-        self.v = nn.Conv2d(in_channels=self._in_channels,
-                            out_channels=out_channels,
-                            kernel_size=1,
-                            stride=1,
-                            padding=0)
-        self.out = nn.Conv2d(in_channels=out_channels,
-                            out_channels=self._in_channels,
-                            kernel_size=1,
-                            stride=1,
-                            padding=0)
+    def __init__(self, channels):
+        super(NonLocalBlock, self).__init__()
+        self.in_channels = channels
+
+        self.group_norm = GroupNorm(channels)
+        self.q = nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0)
+        self.k = nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0)
+        self.v = nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0)
+        self.projection = nn.Conv2d(channels, channels, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
-        x_h = self.group_norm(x)
-        q = self.q(x_h)
-        k = self.k(x_h)
-        v = self.v(x_h)
+        hidden = self.group_norm(x)
+        q = self.q(hidden)
+        k = self.k(hidden)
+        v = self.v(hidden)
 
+        # some reshaping for matrix multiplication
         b, c, h, w = q.shape
 
-        q = q.reshape(b, c, h*w)
-        q.permute(0, 2, 1)
-        k = k.reshape(b, c, h*w)
-        v = v.reshape(b, c, h*w)
+        q = q.reshape(b, c, h * w)
+        q = q.permute(0, 2, 1)
+        k = k.reshape(b, c, h * w)
+        v = v.reshape(b, c, h * w)
 
-        attention = torch.bmm(q, k)
-        attention = attention * (int(c) ** (-0.5))
-        attention = F.softmax(attention, dim=2)
-        attention = attention.permute(0, 2, 1)
+        attn = torch.bmm(q, k)  # batch matrix multiplication for attention
+        attn = attn * (int(c) ** (-0.5))  # scaling factor
+        attn = F.softmax(attn, dim=2)  # softmax along the last dimension to get the probabilies as attention weights
+        attn = attn.permute(0, 2, 1)  # transpose for matrix multiplication
 
-        out = torch.bmm(v, attention)
-        out = out.reshape(b, c, h, w)
+        a = torch.bmm(v, attn)
+        a = a.reshape(b, c, h, w)
 
-        return x + out
+        return x + a  # residual connection for baseline performance guarantee
