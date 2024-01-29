@@ -19,7 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .encoder import VQVAEEncoder
 from .decoder import VQVAEDecoder
-from .codebook import VQVAECodebookVanilla
+from .quantize import VectorQuantizer, VectorQuantizerEMA
 
 class VQVAE(nn.Module):
     '''VQ-VAE vqvae.'''
@@ -38,19 +38,16 @@ class VQVAE(nn.Module):
                                       kernel_size=1,
                                       stride=1)
 
-        # if decay > 0.0:
-        #     self._vq_vae = VectorQuantizerEMA(_num_embeddings=_num_embeddings,
-        #                                       embedding_dim=embedding_dim,
-        #                                       commitment_cost=commitment_cost,
-        #                                       decay=decay)
-        # else:
-        #     self._vq_vae = VectorQuantizer(_num_embeddings=_num_embeddings,
-        #                                    embedding_dim=embedding_dim,
-        #                                    commitment_cost=commitment_cost)
-
-        self._vq_bottleneck = VQVAECodebookVanilla(num_embeddings=num_embeddings,
-                                                   embedding_dim=embedding_dim,
-                                                   commitment_cost=commitment_cost)
+        if decay > 0.0:
+            print("Using EMA")
+            self._vq_bottleneck = VectorQuantizerEMA(num_embeddings=num_embeddings,
+                                              embedding_dim=embedding_dim,
+                                              commitment_cost=commitment_cost,
+                                              decay=decay)
+        else:
+            self._vq_bottleneck = VectorQuantizer(num_embeddings=num_embeddings,
+                                           embedding_dim=embedding_dim,
+                                           commitment_cost=commitment_cost)
 
         self._decoder = VQVAEDecoder(in_channels=embedding_dim,
                                 num_hiddens=num_hiddens,

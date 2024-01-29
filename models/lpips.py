@@ -43,15 +43,14 @@ def download(url, local_path, chunk_size=1024):
         RuntimeError: If the download fails.
     """
     os.makedirs(
-        os.path.dirname(local_path), exist_ok=True
+        os.path.split(local_path)[0], exist_ok=True
     )  # create the directory if it doesn't exist
 
     with requests.get(url, stream=True) as r:
         r.raise_for_status()  # raise an exception if the status code is not 200
         total_size = int(r.headers.get("content-length", 0))
         with tqdm(
-                total=total_size, unit="B", unit_scale=True, unit_divisor=1024
-        ) as progress_bar:
+                total=total_size, unit="B", unit_scale=True) as progress_bar:
             with open(local_path, "wb") as f:
                 for data in r.iter_content(chunk_size=chunk_size):
                     if data:
@@ -71,7 +70,7 @@ def get_ckpt_path(ckpt_name, ckpt_dir=None):
         str: Path to the checkpoint file.
     """
     assert (
-            ckpt_name in CKPT_MAP
+            ckpt_name in URL_MAP
     ), f"Checkpoint {ckpt_name} not found."  # check if the checkpoint exists
     path = os.path.join(ckpt_dir, CKPT_MAP[ckpt_name])  # get the path to the checkpoint
     if not os.path.exists(path):  # download the checkpoint if it doesn't exist
@@ -84,11 +83,9 @@ def get_ckpt_path(ckpt_name, ckpt_dir=None):
 class LPIPS(nn.Module):
     def __init__(self):
         super(LPIPS, self).__init__()
-        self.scaling_layer = (
-            ScalingLayer()
-        )  # scaling layer to shift and scale the image to the range [-1, 1]
+        self.scaling_layer = ScalingLayer() # scaling layer to shift and scale the image to the range [-1, 1]
         self.channels = [64, 128, 256, 512, 512]  # number of channels in each layer
-        self.vgg = VGG16()  # VGG16 network
+        self.net = VGG16()  # VGG16 network
         self.linear_layers = nn.ModuleList(
             [
                 NetLinLayer(self.channels[0]),
@@ -105,6 +102,7 @@ class LPIPS(nn.Module):
         for param in self.parameters():
             param.requires_grad = False
 
+
     def load_from_pretrained(self, ckpt_name="vgg_lpips"):
         ckpt_path = get_ckpt_path(
             ckpt_name, "vgg_lpips"
@@ -112,22 +110,23 @@ class LPIPS(nn.Module):
         self.load_state_dict(
             torch.load(ckpt_path, map_location=torch.device("cpu")), strict=False
         )  # load the checkpoint
+        print(f"Loaded {ckpt_name} model from {ckpt_path}.")
 
     def forward(self, real, fake):
-        features_real = self.vgg(
+        features_real = self.net(
             self.scaling_layer(real)
         )  # get the features of the real image
-        features_fake = self.vgg(
+        features_fake = self.net(
             self.scaling_layer(fake)
         )  # get the features of the fake image
         diffs = {}  # dictionary to store the differences between the features
 
         for i in range(len(self.channels)):
-            diffs[i] = (norm_tensor(features_real[i]) - norm_tensor(features_fake[i])) ** 2  # calculate the Euclidean distance between the features layer by layer
+            diffs[i] = (normalize_tensor(features_real[i]) - normalize_tensor(features_fake[i])) ** 2  # calculate the Euclidean distance between the features layer by layer
 
         return sum(
             [
-                spatial_average(self.linear_layers[i](diffs[i]))
+                spatial_average(self.linear_layers[i].model(diffs[i]), keepdim=True)
                 for i in range(len(self.channels))
             ]
         )  # calculate the average of the differences
@@ -150,39 +149,47 @@ class ScalingLayer(nn.Module):
 class VGG16(nn.Module):
     """Customized VGG16 network with layer outputs as named tuples."""
 
-    def __init__(self):
+    def __init__(self, requires_grad=False):
         super(VGG16, self).__init__()
-        vgg_pretrained_features = vgg16(weights="VGG16_Weights.DEFAULT").features
-        slices = [
-            vgg_pretrained_features[i] for i in range(30)
-        ]  # get the first 30 layers of the VGG16 network
-        # Slice the network into 5 parts
-        self.slice1 = nn.Sequential(*slices[:4])  # first 5 layers
-        self.slice2 = nn.Sequential(*slices[4:9])  # next 5 layers
-        self.slice3 = nn.Sequential(*slices[9:16])  # next 7 layers
-        self.slice4 = nn.Sequential(*slices[16:23])  # next 7 layers
-        self.slice5 = nn.Sequential(*slices[23:30])  # last 7 layers
-
-        # fix the weights of the VGG16 network
-        for param in self.parameters():
-            param.requires_grad = False
+        vgg_pretrained_features = vgg16(weights='DEFAULT').features
+        self.slice1 = nn.Sequential()
+        self.slice2 = nn.Sequential()
+        self.slice3 = nn.Sequential()
+        self.slice4 = nn.Sequential()
+        self.slice5 = nn.Sequential()
+        self.N_slices = 5
+        for x in range(4):
+            self.slice1.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(4, 9):
+            self.slice2.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(9, 16):
+            self.slice3.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(16, 23):
+            self.slice4.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(23, 30):
+            self.slice5.add_module(str(x), vgg_pretrained_features[x])
+        if not requires_grad:
+            for param in self.parameters():
+                param.requires_grad = False
 
     def forward(self, x):
         h = self.slice1(x)
-        h_relu1 = h
+        h_relu1_2 = h
         h = self.slice2(h)
-        h_relu2 = h
+        h_relu2_2 = h
         h = self.slice3(h)
-        h_relu3 = h
+        h_relu3_3 = h
         h = self.slice4(h)
-        h_relu4 = h
+        h_relu4_3 = h
         h = self.slice5(h)
-        h_relu5 = h
+        h_relu5_3 = h
         vgg_outputs = namedtuple(
-            "VggOutputs", ["relu1", "relu2", "relu3", "relu4", "relu5"]
+            "VggOutputs", ["relu1_2", "relu2_2", "relu3_3", "relu4_3", "relu5_3"]
         )
 
-        return vgg_outputs(h_relu1, h_relu2, h_relu3, h_relu4, h_relu5)
+        out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3, h_relu5_3)
+
+        return out
 
 
 class NetLinLayer(nn.Module):
@@ -201,11 +208,8 @@ class NetLinLayer(nn.Module):
             ),  # convolutional layer
         )
 
-    def forward(self, x):
-        return self.model(x)
 
-
-def norm_tensor(x):
+def normalize_tensor(x, eps=1e-10):
     """Normalize a tensor by their L2 norm.
 
     Args:
@@ -216,11 +220,11 @@ def norm_tensor(x):
     """
     l2norm = torch.sqrt(torch.sum(x ** 2, dim=1, keepdim=True))  # calculate the L2 norm
     return x / (
-            l2norm + 1e-10
+            l2norm + eps
     )  # normalize with a small epsilon to avoid division by zero (numerical stability)
 
 
-def spatial_average(x):
+def spatial_average(x, keepdim=True):
     """Calculate the spatial average of a tensor.
     The image tensors have the shape (batch_size, channels, height, width), so the spatial average is calculated along
     the height and width dimensions.
@@ -232,7 +236,7 @@ def spatial_average(x):
         torch.Tensor: Spatial average of the tensor.
     """
     return x.mean(
-        dim=[2, 3], keepdim=True
+        dim=[2, 3], keepdim=keepdim
     )  # calculate the mean of the tensor along the spatial dimensions
 
 

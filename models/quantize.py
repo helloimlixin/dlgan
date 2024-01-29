@@ -27,11 +27,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class VQVAECodebookVanilla(nn.Module):
+class VectorQuantizer(nn.Module):
     '''Vector Quantizer module (codebook) of the vqvae.'''
 
     def __init__(self, num_embeddings, embedding_dim, commitment_cost, epsilon=1e-10):
-        super(VQVAECodebookVanilla, self).__init__()
+        super(VectorQuantizer, self).__init__()
 
         self._embedding_dim = embedding_dim # dimension of the _embedding vectors in the codebook
         self._num_embeddings = num_embeddings # number of _embedding vectors in the codebook
@@ -92,6 +92,73 @@ class VQVAECodebookVanilla(nn.Module):
 
         return vq_loss, z_q.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
 
+class VectorQuantizerEMA(nn.Module):
+    def __init__(self, num_embeddings, embedding_dim, commitment_cost, decay, epsilon=1e-5):
+        super(VectorQuantizerEMA, self).__init__()
+
+        self._embedding_dim = embedding_dim
+        self._num_embeddings = num_embeddings
+
+        self._embedding = nn.Embedding(self._num_embeddings, self._embedding_dim)
+        self._embedding.weight.data.normal_()
+        self._commitment_cost = commitment_cost
+
+        self.register_buffer('_ema_cluster_size', torch.zeros(num_embeddings))
+        self._ema_w = nn.Parameter(torch.Tensor(num_embeddings, self._embedding_dim))
+        self._ema_w.data.normal_()
+
+        self._decay = decay
+        self._epsilon = epsilon
+
+    def forward(self, z_e):
+        # convert z_e from BCHW -> BHWC
+        z_e = z_e.permute(0, 2, 3, 1).contiguous()
+        input_shape = z_e.shape
+
+        # Flatten input
+        ze_flat = z_e.view(-1, self._embedding_dim)
+
+        # Calculate distances
+        distances = (torch.sum(ze_flat**2, dim=1, keepdim=True)
+                    + torch.sum(self._embedding.weight**2, dim=1)
+                    - 2 * torch.matmul(ze_flat, self._embedding.weight.t()))
+
+        # Encoding
+        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+        encodings = torch.zeros(encoding_indices.shape[0], self._num_embeddings, device=z_e.device)
+        encodings.scatter_(1, encoding_indices, 1)
+
+        # Quantize and unflatten
+        z_q = torch.matmul(encodings, self._embedding.weight).view(input_shape)
+
+        # Use EMA to update the embedding vectors
+        if self.training:
+            self._ema_cluster_size = self._ema_cluster_size * self._decay + \
+                                     (1 - self._decay) * torch.sum(encodings, 0)
+
+            # Laplace smoothing of the cluster size
+            n = torch.sum(self._ema_cluster_size.data)
+            self._ema_cluster_size = (
+                (self._ema_cluster_size + self._epsilon)
+                / (n + self._num_embeddings * self._epsilon) * n)
+
+            dw = torch.matmul(encodings.t(), ze_flat)
+            self._ema_w = nn.Parameter(self._ema_w * self._decay + (1 - self._decay) * dw)
+
+            self._embedding.weight = nn.Parameter(self._ema_w / self._ema_cluster_size.unsqueeze(1))
+
+        # Loss
+        e_latent_loss = F.mse_loss(z_q.detach(), z_e)
+        loss = self._commitment_cost * e_latent_loss
+
+        # Straight Through Estimator
+        z_q = z_e + (z_q - z_e).detach()
+        avg_probs = torch.mean(encodings, dim=0)
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+
+        # convert quantized from BHWC -> BCHW
+        return loss, z_q.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
+
 class VQGANCodebook(nn.Module):
     '''Vector Quantizer module (codebook) of the vqvae.
 
@@ -123,15 +190,25 @@ class VQGANCodebook(nn.Module):
         distances = z_l2_squared + embedding_l2_squared - 2 * inner_product
 
         # encoding_indices: BHW x 1
-        z = torch.argmin(distances, dim=1)
-        # create the z_q with the _embedding vectors
-        z_q = self._embedding(z).view(z_e.shape) # B x H x W x C
+        # z = torch.argmin(distances, dim=1)
+        # # create the z_q with the _embedding vectors
+        # z_q = self._embedding(z).view(z_e.shape) # B x H x W x C
+
+        # encoding_indices: BHW x 1
+        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+        # encoding placeholder: BHW x _num_embeddings
+        encodings = torch.zeros(encoding_indices.shape[0], self._num_embeddings, device=z_e.device)
+        # encodings: BHW x _num_embeddings
+        encodings.scatter_(1, encoding_indices, 1)  # one-hot encoding
+
+        # z_q: BHW x C
+        z_q = torch.matmul(encodings, self._embedding.weight).view(z_e.shape) # B x H x W x C
 
         # compute the commitment loss
         # commitment_loss: B x 1 x H x W
-        commitment_loss = self._beta * F.mse_loss(z_e, z_q.detach())
+        commitment_loss = self._beta * F.mse_loss(z_q.detach(), z_e)
         # loss term to move the embedding vectors closer to the input vectors
-        e2z_loss = F.mse_loss(z_e.detach(), z_q)
+        e2z_loss = F.mse_loss(z_q, z_e.detach())
         # compute the total loss - vq_loss: 1
         vq_loss = commitment_loss + e2z_loss
 
@@ -140,13 +217,13 @@ class VQGANCodebook(nn.Module):
 
         # average pooling over the spatial dimensions
         # avg_probs: B x _num_embeddings
-        avg_probs = torch.mean(F.one_hot(z, self._num_embeddings).float(), dim=0)
+        avg_probs = torch.mean(encodings, dim=0)
 
         # codebook perplexity / usage: 1
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
 
         # the last output is the encoding indices, which is used for the transformer training
-        return vq_loss, z_q.permute(0, 3, 1, 2).contiguous(), perplexity, z
+        return vq_loss, z_q.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
 
 
 

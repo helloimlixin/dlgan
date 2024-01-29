@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 class get_cifar10_train_loader():
-    '''Get training data loader.'''
+    '''Get training data_paths loader.'''
 
     def __init__(self, batch_size):
         self._batch_size = batch_size
@@ -39,15 +39,15 @@ class get_cifar10_train_loader():
                             batch_size=self._batch_size,
                             shuffle=True,
                             num_workers=0,
-                            pin_memory=True) # CUDA only, pin_memory=True enables faster data transfer to CUDA-enabled GPUs.
+                            pin_memory=True) # CUDA only, pin_memory=True enables faster data_paths transfer to CUDA-enabled GPUs.
 
-        # calculate data variance
+        # calculate data_paths variance
         data_variance = np.var(dataset.data / 255.0)
 
         return loader, data_variance
 
 class get_cifar10_test_loader():
-    '''Get test data loader.'''
+    '''Get test data_paths loader.'''
 
     def __init__(self, batch_size):
         self._batch_size = batch_size
@@ -65,6 +65,6 @@ class get_cifar10_test_loader():
                             batch_size=self._batch_size,
                             shuffle=False,
                             num_workers=0,
-                            pin_memory=True) # CUDA only, pin_memory=True enables faster data transfer to CUDA-enabled GPUs.
+                            pin_memory=True) # CUDA only, pin_memory=True enables faster data_paths transfer to CUDA-enabled GPUs.
 
         return loader

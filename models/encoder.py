@@ -83,7 +83,7 @@ class VQGANEncoder(nn.Module):
                 layers.append(ResidualBlock(in_channels, out_channels))
                 in_channels = out_channels
                 if resolution in attention_resolutions:
-                    layers.append(NonLocalBlock(out_channels))
+                    layers.append(NonLocalBlock(in_channels))
             if i != len(channels) - 2:
                 layers.append(DownSampleBlock(channels[i + 1]))
                 resolution //= 2

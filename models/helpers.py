@@ -38,7 +38,7 @@ class GroupNorm(nn.Module):
           (ECCV) (pp. 3-19).
     '''
 
-    def __init__(self, num_channels, num_groups=32, eps=1e-5, affine=True):
+    def __init__(self, num_channels, num_groups=32, eps=1e-6, affine=True):
         super(GroupNorm, self).__init__()
 
         self._num_channels = num_channels
@@ -86,16 +86,14 @@ class ResNetBlock(nn.Module):
         self.num_residual_hiddens = num_residual_hiddens
 
         self.block = nn.Sequential(
-            GroupNorm(num_channels=in_channels),
-            Swish(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=in_channels,
                       out_channels=num_residual_hiddens,
                       kernel_size=3,
                       stride=1,
                       padding=1,
                       bias=False),
-            GroupNorm(num_channels=num_residual_hiddens),
-            Swish(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=num_residual_hiddens,
                       out_channels=num_hiddens,
                       kernel_size=1,
@@ -103,18 +101,8 @@ class ResNetBlock(nn.Module):
                       bias=False)
         )
 
-        if in_channels != num_residual_hiddens: # if the number of channels is not the same, then use 1x1 conv.
-            self.shortcut = nn.Conv2d(in_channels=in_channels,
-                                      out_channels=num_residual_hiddens,
-                                      kernel_size=1,
-                                      stride=1,
-                                      padding=0)
-
     def forward(self, x):
-        if self.in_channels != self.num_residual_hiddens:
-            return self.block(x) + self.shortcut(x)
-        else:
-            return x + self.block(x) # skip connection
+        return x + self.block(x) # skip connection
 
 
 class ResidualBlock(nn.Module):
@@ -159,13 +147,13 @@ class ResidualStack(nn.Module):
 
         self._layers = nn.ModuleList([ResNetBlock(in_channels=in_channels, num_hiddens=num_hiddens,
                                                     num_residual_hiddens=num_residual_hiddens)
-                                      for _ in range(self._num_residual_layers)] + [Swish()])
+                                      for _ in range(self._num_residual_layers)])
 
     def forward(self, x):
         for i in range(self._num_residual_layers):
             x = self._layers[i](x)
 
-        return x
+        return F.relu(x)
 
 
 class UpSampleBlock(nn.Module):
@@ -178,7 +166,7 @@ class UpSampleBlock(nn.Module):
         self.conv = nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
-        x = F.interpolate(x, scale_factor=2)  # up-sample by nearest-neighbor interpolation
+        x = F.interpolate(x, scale_factor=2.0, mode='nearest')  # up-sample by nearest-neighbor interpolation
         return self.conv(x)
 
 
@@ -306,7 +294,9 @@ class NonLocalBlock(nn.Module):
         attn = F.softmax(attn, dim=2)  # softmax along the last dimension to get the probabilies as attention weights
         attn = attn.permute(0, 2, 1)  # transpose for matrix multiplication
 
-        a = torch.bmm(v, attn)
-        a = a.reshape(b, c, h, w)
+        hidden = torch.bmm(v, attn)
+        hidden = hidden.reshape(b, c, h, w)
 
-        return x + a  # residual connection for baseline performance guarantee
+        hidden = self.projection(hidden)
+
+        return x + hidden  # residual connection for baseline performance guarantee

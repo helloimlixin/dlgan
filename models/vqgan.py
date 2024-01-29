@@ -20,9 +20,9 @@
 #  ==============================================================================
 import torch
 import torch.nn as nn
-from .encoder import VQGANEncoder
-from .decoder import VQGANDecoder
-from .codebook import VQGANCodebook
+from .encoder import VQVAEEncoder, VQGANEncoder
+from .decoder import VQVAEDecoder, VQGANDecoder
+from .quantize import VQGANCodebook
 
 class VQGAN(nn.Module):
     '''VQ-GAN vqvae.
@@ -34,9 +34,9 @@ class VQGAN(nn.Module):
     def __init__(self, args):
         super(VQGAN, self).__init__()
 
-        self._encoder = VQGANEncoder(args).to(device=args.device)
+        self._encoder = VQGANEncoder(args)
         self._codebook = VQGANCodebook(args).to(device=args.device)
-        self._decoder = VQGANDecoder(args).to(device=args.device)
+        self._decoder = VQGANDecoder(args)
         self._prequant_conv = nn.Conv2d(in_channels=args.embedding_dim,
                                         out_channels=args.embedding_dim,
                                         kernel_size=1,
@@ -53,7 +53,7 @@ class VQGAN(nn.Module):
         z_q_postquant = self._postquant_conv(z_q)
         x_hat = self._decoder(z_q_postquant)
 
-        return x_hat, vq_loss, z # z is the latent codebook indices
+        return x_hat, z, vq_loss # z is the latent codebook indices
 
     def encode(self, x):
         '''Encode an image into its latent representation, will later be used for the transformers.
@@ -86,10 +86,10 @@ class VQGAN(nn.Module):
         return scale * lambda_factor
 
     @staticmethod
-    def adopt_weight(disc_factor, i, threshold, value=0.):
+    def adopt_weight(disc_factor, epoch, threshold, value=0.):
         '''Adopt the weight of the discriminator.
         '''
-        if i < threshold:
+        if epoch < threshold:
             disc_factor = value
 
         return disc_factor

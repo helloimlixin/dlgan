@@ -88,9 +88,9 @@ class VQGANDecoder(nn.Module):
                 layers.append(ResidualBlock(in_channels, out_channels))
                 in_channels = out_channels
                 if resolution in attention_resolutions:
-                    layers.append(NonLocalBlock(out_channels))
+                    layers.append(NonLocalBlock(in_channels))
             if i != 0:
-                layers.append(UpSampleBlock( in_channels))
+                layers.append(UpSampleBlock(in_channels))
                 resolution *= 2
 
         layers.append(GroupNorm(in_channels))
