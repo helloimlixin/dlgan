@@ -1,5 +1,5 @@
 #  ==============================================================================
-#  Description: Helper functions for the vqvae.
+#  Description: Helper functions for the model.
 #  Copyright (C) 2024 Xin Li
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +14,6 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #  ==============================================================================
-
 import torch.nn as nn
 from .encoder import VQVAEEncoder
 from .decoder import VQVAEDecoder
