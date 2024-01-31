@@ -20,14 +20,10 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
 from torchvision import utils as torchvisionutils
-from dataloaders.cifar10 import get_cifar10_train_loader, get_cifar10_test_loader
 from dataloaders.flowers import FlowersDataset
-from models import discriminator
-from models.discriminator import Discriminator
+
 from lpips import LPIPS
-from models.vqgan import VQGAN
 from models.vqvae import VQVAE
 import numpy as np
 import time

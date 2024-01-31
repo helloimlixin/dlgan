@@ -82,7 +82,7 @@ class VectorQuantizer(nn.Module):
         vq_loss = commitment_loss + e2z_loss
 
         # save z_q outputs
-        z_q = z_e + (z_q - z_e).detach() # B x C x H x W
+        z_q = z_e + (z_q - z_e).detach() # B x C x H x W, straight-through gradient
 
         # average pooling over the spatial dimensions
         # avg_probs: B x _num_embeddings
@@ -210,7 +210,7 @@ class VQGANCodebook(nn.Module):
         # loss term to move the embedding vectors closer to the input vectors
         e2z_loss = F.mse_loss(z_q, z_e.detach())
         # compute the total loss - vq_loss: 1
-        vq_loss = commitment_loss + e2z_loss
+        loss = commitment_loss + e2z_loss
 
         # save quantized outputs
         z_q = z_e + (z_q - z_e).detach()
@@ -223,7 +223,7 @@ class VQGANCodebook(nn.Module):
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
 
         # the last output is the encoding indices, which is used for the transformer training
-        return vq_loss, z_q.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
+        return loss, z_q.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
 
 
 

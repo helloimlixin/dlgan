@@ -20,15 +20,14 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
+
 from torchvision import utils as torchvisionutils
-from dataloaders.cifar10 import get_cifar10_train_loader, get_cifar10_test_loader
+from torchvision import transforms
+
+from dataloaders.cifar10 import get_cifar10_train_loader
 from dataloaders.flowers import FlowersDataset
-from models import discriminator
-from models.discriminator import Discriminator
-from lpips import LPIPS
-from models.vqgan import VQGAN
-from models.vqvae import VQVAE
+
+from models.dlvae import DLVAE
 import numpy as np
 import time
 import os
@@ -54,69 +53,76 @@ commitment_cost = 0.25
 
 decay = 0.99
 
-learning_rate = 1e-4
+learning_rate = 1e-5
 
 epsilon = 1e-10 # a small number to avoid the numerical issues
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-l2_loss_factor = 0.5
+l2_loss_factor = 0.9
 lpips_loss_factor = 1 - l2_loss_factor
 
-# data_paths loaders
-# train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
+sparsity_level = 200 # number of atoms selected
 
+epsilon = 1e-10 # a small number to avoid the numerical issues
+
+# data_paths loaders
 flowers_dataset = FlowersDataset(root='./data/flowers')
 train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
-# test_loader = get_cifar10_test_loader(batch_size=test_batch_size)()
+# train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
 
-# vqvae
-vqvae = VQVAE(in_channels=3,
-              num_hiddens=num_hiddens,
-              num_residual_layers=num_residual_layers,
-              num_residual_hiddens=num_residual_hiddens,
-              num_embeddings=num_embeddings,
-              embedding_dim=embedding_dim,
-              commitment_cost=commitment_cost,
-              decay=decay).to(device)
+# dlvae
+dlvae = DLVAE(in_channels=3,
+            num_hiddens=num_hiddens,
+            num_residual_hiddens=num_residual_hiddens,
+            num_residual_layers=num_residual_layers,
+            embedding_dim=embedding_dim,
+            num_embeddings=num_embeddings,
+            sparsity_level=sparsity_level,
+            decay=decay).to(device)
 
-# vqvae_optimizer
-vqvae_optimizer = torch.optim.Adam(vqvae.parameters(), lr=learning_rate, amsgrad=False)
+# dlvae_optimizer
+optimizer = torch.optim.Adam(dlvae.parameters(), lr=learning_rate, amsgrad=False)
 
 # loss function
 def loss_function(recon_x, x):
     recon_error = F.mse_loss(recon_x, x)
     return recon_error
 
-def train_vqvae():
+def train_dlvae():
+    from lpips import LPIPS
     '''Train the vqvae.'''
     train_res_recon_error = []
     train_res_perplexity = []
 
     perceptual_loss_criterion = LPIPS(net='vgg').to(device)
 
-    vqvae.train() # set the vqvae to training mode
-    writer = SummaryWriter('./runs/vanilla') # create a writer object for TensorBoard
+    dlvae.train() # set the vqvae to training mode
+    writer = SummaryWriter('./runs/dictlearn') # create a writer object for TensorBoard
 
     for i in range(num_training_updates):
         # sample the mini-batch
         x = next(iter(train_loader))
         x = x.to(device)
 
-        vqvae_optimizer.zero_grad() # clear the gradients
+        optimizer.zero_grad() # clear the gradients
 
         # forward pass
-        vq_loss, data_recon, perplexity, quantized = vqvae(x)
+        dl_loss, data_recon, perplexity, representation = dlvae(x)
 
         recon_error = l2_loss_factor * loss_function(data_recon, x) + lpips_loss_factor * perceptual_loss_criterion(data_recon, x).mean()
+        # recon_error = loss_function(data_recon, x)
 
-        loss = recon_error + vq_loss # total loss
+        loss = recon_error # total loss
 
         # backward pass
-        loss.backward()
+        loss.backward(retain_graph=True)
+
+        if (i + 1) % 200 == 0:
+            dl_loss.backward()  # update the dictionary learning bottleneck
 
         # update parameters
-        vqvae_optimizer.step()
+        optimizer.step()
 
         # print training information
         if (i + 1) % 100 == 0:
@@ -130,7 +136,7 @@ def train_vqvae():
 
         # save training information for TensorBoard
         writer.add_scalar('Train Recon Error', recon_error.item(), i+1)
-        writer.add_scalar('Train VQ Loss', vq_loss.item(), i+1)
+        writer.add_scalar('Train Dictionary Learning Loss', dl_loss.item(), i+1)
         writer.add_scalar('Train Perplexity', perplexity.item(), i+1)
         writer.add_scalar('Train Loss', loss.item(), i+1)
 
@@ -140,7 +146,7 @@ def train_vqvae():
 
         # save the vqvae graph
         if i == 0:
-            writer.add_graph(vqvae, x)
+            writer.add_graph(dlvae, x)
 
         # save the reconstructed images
         if (i + 1) % 100 == 0:
@@ -149,7 +155,7 @@ def train_vqvae():
 
         # save the codebook
         if (i + 1) % 100 == 0:
-            writer.add_embedding(quantized.view(train_batch_size, -1), label_img=originals, global_step=i+1)
+            writer.add_embedding(representation.view(train_batch_size, -1), label_img=originals, global_step=i+1)
 
         # save the gradient visualization
         # if (i + 1) % 100 == 0:
@@ -164,19 +170,19 @@ def train_vqvae():
 
         # save the vqvae
         if (i + 1) % 1000 == 0:
-            torch.save(vqvae.state_dict(), './checkpoints/vanilla/vqvae_%d.pt' % (i + 1))
+            torch.save(dlvae.state_dict(), './checkpoints/dictlearn/vqvae_%d.pt' % (i + 1))
 
         # save the images
         if (i + 1) % 1000 == 0:
-            torchvisionutils.save_image(originals, './vqvae_results/ema/originals_%d.png' % (i + 1))
-            torchvisionutils.save_image(reconstructions, './vqvae_results/ema/reconstructions_%d.png' % (i + 1))
+            torchvisionutils.save_image(originals, './dlvae_results/vanilla/originals_%d.png' % (i + 1))
+            torchvisionutils.save_image(reconstructions, './dlvae_results/vanilla/reconstructions_%d.png' % (i + 1))
 
     writer.close()
 
 
 if __name__ == '__main__':
     start = time.time()
-    train_vqvae()
+    train_dlvae()
     end = time.time()
     print('Training time: %f seconds.' % (end-start))
 

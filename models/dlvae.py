@@ -17,14 +17,13 @@
 import torch.nn as nn
 from .encoder import VQVAEEncoder
 from .decoder import VQVAEDecoder
-from .quantize import VectorQuantizer, VectorQuantizerEMA
-
-class VQVAE(nn.Module):
-    '''VQ-VAE vqvae.'''
+from .dictlearn import DictLearn, DictLearnEMA
+class DLVAE(nn.Module):
+    '''DL-VAE model.'''
 
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, num_embeddings,
-                 embedding_dim, commitment_cost, epsilon=1e-10, decay=0):
-        super(VQVAE, self).__init__()
+                 embedding_dim, sparsity_level, decay=0, epsilon=1e-10):
+        super(DLVAE, self).__init__()
 
         self._encoder = VQVAEEncoder(in_channels=in_channels,
                                 num_hiddens=num_hiddens,
@@ -38,14 +37,14 @@ class VQVAE(nn.Module):
 
         if decay > 0.0:
             print("Using EMA")
-            self._vq_bottleneck = VectorQuantizerEMA(num_embeddings=num_embeddings,
-                                              embedding_dim=embedding_dim,
-                                              commitment_cost=commitment_cost,
-                                              decay=decay)
+            self._dl_bottleneck = DictLearnEMA(dim=embedding_dim,
+                                                num_atoms=num_embeddings,
+                                                sparsity_level=sparsity_level,
+                                                decay=decay, epsilon=epsilon)
         else:
-            self._vq_bottleneck = VectorQuantizer(num_embeddings=num_embeddings,
-                                           embedding_dim=embedding_dim,
-                                           commitment_cost=commitment_cost)
+            self._dl_bottleneck = DictLearn(dim=embedding_dim,
+                                            num_atoms=num_embeddings,
+                                            sparsity_level=sparsity_level)
 
         self._decoder = VQVAEDecoder(in_channels=embedding_dim,
                                 num_hiddens=num_hiddens,
@@ -55,7 +54,7 @@ class VQVAE(nn.Module):
     def forward(self, x):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
-        loss, quantized, perplexity, encodings = self._vq_bottleneck(z)
-        x_recon = self._decoder(quantized)
+        dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z)
+        x_recon = self._decoder(z_recon)
 
-        return loss, x_recon, perplexity, quantized
+        return dlloss, x_recon, perplexity, z
