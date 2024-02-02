@@ -65,7 +65,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 l2_loss_factor = 0.5
 lpips_loss_factor = 1 - l2_loss_factor
 
-sparsity_level = 5 # number of atoms selected
+sparsity_level = 10 # number of atoms selected
 
 epsilon = 1e-10 # a small number to avoid the numerical issues
 
@@ -128,23 +128,8 @@ def train_dlvae():
         dl_loss, data_recon, perplexity, representation = dlvae(x)
 
         recon_error = l2_loss_factor * loss_function(data_recon, x) + lpips_loss_factor * perceptual_loss_criterion(data_recon, x).mean()
-        # recon_error = loss_function(data_recon, z_e)
 
         loss = recon_error + dl_loss # total loss
-        # loss = recon_error
-
-        # backward pass
-        # loss.backward(retain_graph=True)
-        #
-
-        # if (i + 1) % 1000 == 0:
-        #     dl_loss.backward()
-
-        # if (i + 1) % 2000 == 0:
-        #     opt_dl.step()
-        #
-        # # update parameters
-        # opt_vae.step()
 
         loss.backward()
 
