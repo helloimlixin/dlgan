@@ -25,7 +25,7 @@ from .helpers import ResidualStack, ResidualBlock, NonLocalBlock, UpSampleBlock,
 
 
 class VQVAEDecoder(nn.Module):
-    '''Decoder module of the vanilla VQ-VAE vqvae.'''
+    '''Decoder module of the vanilla-10 VQ-VAE vqvae.'''
 
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens):
         super(VQVAEDecoder, self).__init__()

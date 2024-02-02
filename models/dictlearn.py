@@ -26,8 +26,8 @@ class DictLearn(nn.Module):
   Attributes:
     dim: data dimension D.
     num_atoms: number of dictionary atoms K.
-    dictionary: dictionary matrix A with dimension K x D.
-    representation: representation matrix R with dimension N x K,
+    dictionary: dictionary matrix A with dimension K z_e D.
+    representation: representation matrix R with dimension N z_e K,
       N as the number of data samples
     sparsity: sparsity control parameter, i.e., the lambda.
   """
@@ -43,8 +43,7 @@ class DictLearn(nn.Module):
   def representation_builder(self):
     layers = nn.ModuleList()
     layers.append(nn.Linear(self.dim, self.num_atoms)) # output dim for one sample: K
-    layers.append(nn.Softmax(dim=0)) # convert the output to [0, 1] range
-    layers.append(nn.BatchNorm1d(self.num_atoms))
+    layers.append(nn.Softmax(dim=1)) # convert the output to [0, 1] range
 
     return nn.Sequential(*layers)
 
@@ -52,8 +51,8 @@ class DictLearn(nn.Module):
     """Calculate the loss.
 
     Args:
-      x: input data, for image data, the dimension is: N x C x H x W
-      representation: representation matrix R with dimension N x K,
+      x: input data, for image data, the dimension is: N z_e C z_e H z_e W
+      representation: representation matrix R with dimension N z_e K,
         N as the number of data samples
 
     Returns:
@@ -75,42 +74,43 @@ class DictLearn(nn.Module):
 
     Args:
       x: input data, for image data, the dimension is:
-          batch_size x num_channels x height x width
+          batch_size z_e num_channels z_e height z_e width
     """
     batch_size, num_channels, height, width = x.shape
     x = x.permute(0, 2, 3, 1).contiguous()
-    x_flattened = x.view(-1, self.dim) # data dimension: N x D
+    x_flattened = x.view(-1, self.dim) # data dimension: N z_e D
     representation = self.representation(x_flattened)
-    sparse_operator = torch.zeros(representation.shape, requires_grad=True).cuda()
+    encodings = torch.zeros(representation.shape, requires_grad=True).cuda()
 
-    # compute the l2 distances (N x K) between x_flattened (N x D) and the dictionary (K x D)
-    distances = -(torch.sum(x_flattened**2, dim=1, keepdim=True) + torch.sum(
-        self.dictionary**2, dim=1) - 2 * torch.matmul(x_flattened, self.dictionary.t())) # taking a negation for topk operation
+    # compute the l2 distances (N z_e K) between x_flattened (N z_e D) and the dictionary (K z_e D)
+    distances = torch.sum(x_flattened**2, dim=1, keepdim=True) + torch.sum(
+        self.dictionary**2, dim=1) - 2 * torch.matmul(x_flattened, self.dictionary.t()) # taking a negation for topk operation
 
-    elements, indices = torch.topk(distances, self.sparsity_level, dim=1) # topk operation
+    elements, indices = distances.topk(self.sparsity_level, dim=1, largest=False) # topk operation
 
-    sparse_operator.scatter_(1, indices, 1)
-    representation = representation * sparse_operator
+    encodings.scatter_(1, indices, 1)
+    representation = representation * encodings
 
     reconstruction = torch.matmul(representation, self.dictionary)
     reconstruction = reconstruction.view(batch_size, self.dim, height, width).contiguous()
 
     x = x.permute(0, 3, 1, 2).contiguous() # permute back
-    x = x.view(batch_size, self.dim, height, width)
+    x = x.view(batch_size, self.dim, height, width).contiguous()
 
-    recon_loss = nn.MSELoss()(x, reconstruction.detach()) * 0.25 + nn.MSELoss()(x.detach(), reconstruction)
+    recon_loss = nn.MSELoss()(x, reconstruction.detach()) + nn.MSELoss()(x.detach(), reconstruction)
     regularization = torch.sum(torch.abs(representation))
 
-    reconstruction = reconstruction + (reconstruction - x).detach() # straight-through gradient
+    reconstruction = x + (reconstruction - x).detach() # straight-through gradient
 
     # average pooling over the spatial dimensions
-    # avg_probs: B x _num_embeddings
-    avg_probs = torch.mean(representation, dim=0)
+    # avg_probs: B z_e _num_embeddings
+    avg_probs = torch.mean(encodings, dim=0)
+    avg_probs = avg_probs / torch.sum(avg_probs)  # normalize the representation
     # codebook perplexity / usage: 1
     perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
 
     # return representation
-    return recon_loss, reconstruction, perplexity, representation
+    return recon_loss + regularization, reconstruction, perplexity, representation
 
 
 class DictLearnEMA(nn.Module):
@@ -121,8 +121,8 @@ class DictLearnEMA(nn.Module):
   Attributes:
     dim: data dimension D.
     num_atoms: number of dictionary atoms K.
-    dictionary: dictionary matrix A with dimension K x D.
-    representation: representation matrix R with dimension N x K,
+    dictionary: dictionary matrix A with dimension K z_e D.
+    representation: representation matrix R with dimension N z_e K,
       N as the number of data samples
     sparsity: sparsity control parameter, i.e., the lambda.
   """
@@ -130,9 +130,9 @@ class DictLearnEMA(nn.Module):
     super(DictLearnEMA, self).__init__()
     self.dim = dim
     self.num_atoms = num_atoms
-    self.dictionary = nn.Embedding(num_atoms, dim)
-    self.dictionary.weight.data.uniform_(-1 / num_atoms, 1 / num_atoms)
-    self.commitment_cost = nn.Parameter(torch.tensor(0.25), requires_grad=True) # make commitment cost learnable
+    self.dictionary = nn.Parameter(torch.rand((self.num_atoms, self.dim), dtype=torch.float, requires_grad=True))
+    self.dictionary.data.normal_()
+    self.commitment_cost = nn.Parameter(torch.tensor(0.25)) # make commitment cost learnable
     self.representation = self.representation_builder()
     self.sparsity_level = sparsity_level
 
@@ -146,7 +146,7 @@ class DictLearnEMA(nn.Module):
     buffer is that the latter will not be a part of this module’s state_dict.
     '''
     self.register_buffer('_ema_cluster_size', torch.zeros(num_atoms))  # N
-    self._ema_w = nn.Parameter(torch.Tensor(num_atoms, self.dim))
+    self._ema_w = nn.Parameter(torch.Tensor(num_atoms, self.dim), requires_grad=True)  # m_i
     self._ema_w.data.normal_()
 
     self._decay = decay # decay for the moving averages
@@ -155,62 +155,42 @@ class DictLearnEMA(nn.Module):
   def representation_builder(self):
     layers = nn.ModuleList()
     layers.append(nn.Linear(self.dim, self.num_atoms)) # output dim for one sample: K
-    layers.append(nn.Softmax(dim=0)) # convert the output to [0, 1] range
-    layers.append(nn.BatchNorm1d(self.num_atoms))
+    layers.append(nn.Softmax(dim=1)) # convert the output to [0, 1] range
 
     return nn.Sequential(*layers)
 
-  def loss(self, x, representation):
-    """Calculate the loss.
-
-    Args:
-      x: input data, for image data, the dimension is: N x C x H x W
-      representation: representation matrix R with dimension N x K,
-        N as the number of data samples
-
-    Returns:
-      combined loss, reconstruction, representation
-    """
-    batch_size, num_channels, height, width = x.shape
-    reconstruction = torch.matmul(representation, self.dictionary.weight)
-    reconstruction = reconstruction.view(batch_size, self.dim, height, width).contiguous()
-
-    reconstruction = reconstruction + (reconstruction - x).detach() # straight-through gradient
-    # recon_loss = nn.MSELoss()(x, reconstruction)
-    recon_loss = nn.MSELoss()(x, reconstruction.detach()) * 0.25 + nn.MSELoss()(x.detach(), reconstruction)
-    regularization = torch.sum(torch.abs(representation))
-
-    return recon_loss, reconstruction, representation
-
-  def forward(self, x):
+  def loss(self, z_e, representation):
     """Forward pass.
 
     Args:
-      x: input data, for image data, the dimension is:
-          batch_size x num_channels x height x width
+      z_e: input data, for image data, the dimension is:
+          batch_size z_e num_channels z_e height z_e width
     """
-    batch_size, num_channels, height, width = x.shape
-    x = x.permute(0, 2, 3, 1).contiguous()
-    x_flattened = x.view(-1, self.dim) # data dimension: N x D
-    representation = self.representation(x_flattened) # N x K
-    sparse_operator = torch.zeros(representation.shape, device=x.device)
+    z_e = z_e.permute(0, 2, 3, 1).contiguous() # permute the input
+    ze_shape = z_e.shape # save the shape
 
-    # compute the l2 distances (N x K) between x_flattened (N x D) and the dictionary (K x D)
-    distances = -(torch.sum(x_flattened**2, dim=1, keepdim=True) + torch.sum(
-        self.dictionary.weight**2, dim=1) - 2 * torch.matmul(x_flattened, self.dictionary.weight.t())) # taking a negation for topk operation
+    # flatten the input
+    ze_flattened = z_e.view(-1, self.dim) # data dimension: N z_e D
 
-    elements, indices = torch.topk(distances, self.sparsity_level, dim=1) # topk operation
+    # compute the l2 distances (N z_e K) between x_flattened (N z_e D) and the dictionary (K z_e D)
+    distances = -torch.sum(ze_flattened**2, dim=1, keepdim=True) + torch.sum(
+        self.dictionary**2, dim=1) - 2 * torch.matmul(ze_flattened, self.dictionary.t()) # taking a negation for topk operation
 
-    sparse_operator.scatter_(1, indices, 1)
-    representation = representation * sparse_operator
+    # encodings: N z_e K
+    elements, encoding_indices = distances.topk(self.sparsity_level, dim=1) # topk operation
+    encodings = torch.zeros(encoding_indices.shape[0], self.num_atoms, device=ze_flattened.device)
+    encodings.scatter_(1, encoding_indices, 1)
 
-    reconstruction = torch.matmul(representation, self.dictionary.weight)
-    reconstruction = reconstruction.view(batch_size, self.dim, height, width).contiguous()
+    # compute the representation
+    representation = representation * encodings
+
+    # compute the reconstruction from the representation
+    reconstruction = torch.matmul(representation, self.dictionary).view(ze_shape)
 
     # Use EMA to update the dictionary
     if self.training:
       self._ema_cluster_size = self._ema_cluster_size * self._decay + \
-                               (1 - self._decay) * torch.sum(sparse_operator, 0)
+                               (1 - self._decay) * torch.sum(encodings, 0)
 
       # Laplace smoothing of the cluster size
       n = torch.sum(self._ema_cluster_size.data)
@@ -218,25 +198,30 @@ class DictLearnEMA(nn.Module):
               (self._ema_cluster_size + self._epsilon)
               / (n + self.num_atoms * self._epsilon) * n)  # N_i
 
-      dw = torch.matmul(sparse_operator.t(), x_flattened)  # z_ij
+      dw = torch.matmul(encodings.t(), ze_flattened)  # z_ij
       self._ema_w = nn.Parameter(self._ema_w * self._decay + (1 - self._decay) * dw)  # m_i
 
-      self.dictionary.weight = nn.Parameter(self._ema_w / self._ema_cluster_size.unsqueeze(1))  # e_i
+      self.dictionary = nn.Parameter(self._ema_w / self._ema_cluster_size.unsqueeze(1))  # e_i
+      self.dictionary = nn.Parameter(self.dictionary / torch.norm(self.dictionary, dim=1, keepdim=True)) # e_i
 
-    x = x.permute(0, 3, 1, 2).contiguous() # permute back
-    x = x.view(batch_size, self.dim, height, width)
+    recon_loss = F.mse_loss(reconstruction.detach(), z_e) * 0.25
+    regularization = torch.sum(torch.abs(representation))
 
-    recon_loss = nn.MSELoss()(x, reconstruction.detach()) * self.commitment_cost + nn.MSELoss()(x.detach(), reconstruction)
 
-    reconstruction = reconstruction + (reconstruction - x).detach() # straight-through gradient
+    reconstruction = z_e + (reconstruction - z_e).detach() * 0.25 # straight-through gradient
 
     # average pooling over the spatial dimensions
-    # avg_probs: B x _num_embeddings
-    avg_probs = torch.mean(sparse_operator, dim=0)
+    # avg_probs: B z_e _num_embeddings
+    avg_probs = torch.mean(encodings, dim=0)
     avg_probs = avg_probs / torch.sum(avg_probs)  # normalize the representation
 
     # codebook perplexity / usage: 1
     perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + self._epsilon)))
 
     # return representation
-    return recon_loss, reconstruction, perplexity, representation
+    return recon_loss, reconstruction.permute(0, 3, 1, 2).contiguous(), perplexity, representation
+
+  def forward(self, z_e):
+    z_e = z_e.permute(0, 2, 3, 1).contiguous()
+    ze_flattened = z_e.view(-1, self.dim)
+    return self.representation(ze_flattened)

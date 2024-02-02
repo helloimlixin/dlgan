@@ -131,7 +131,7 @@ def norm_tensor(x):
 
 def spatial_average(x):
     """
-     imgs have: batch_size x channels x width x height --> average over width and height channel
+     imgs have: batch_size z_e channels z_e width z_e height --> average over width and height channel
     :param x: batch of images
     :return: averaged images along width and height
     """

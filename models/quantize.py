@@ -46,35 +46,35 @@ class VectorQuantizer(nn.Module):
         self._epsilon = epsilon
 
     def forward(self, z_e):
-        # Convert z_e from B x C x H x W to B x H x W x C, which is required by the _embedding layer. Here the
+        # Convert z_e from B z_e C z_e H z_e W to B z_e H z_e W z_e C, which is required by the _embedding layer. Here the
         # contiguous() method is used to make sure that the memory is laid out contiguously (in correct order), which is
         # required by most vectorized operations, such as view().
         # See https://pytorch.org/docs/stable/generated/torch.Tensor.contiguous.html.
         z_e = z_e.permute(0, 2, 3, 1).contiguous()
-        input_shape = z_e.shape # B x H x W x C
+        input_shape = z_e.shape # B z_e H z_e W z_e C
 
-        # convert z_e from B x H x W x C to BHW x C, which is required by the quantization bottleneck.
+        # convert z_e from B z_e H z_e W z_e C to BHW z_e C, which is required by the quantization bottleneck.
         ze_flattened = z_e.view(-1, self._embedding_dim)
 
         # compute the distances between the input vectors and the _embedding vectors
-        # distances: BHW x _num_embeddings
-        flat_input_l2_squared = torch.sum(ze_flattened**2, dim=1, keepdim=True) # BHW x 1
+        # distances: BHW z_e _num_embeddings
+        flat_input_l2_squared = torch.sum(ze_flattened**2, dim=1, keepdim=True) # BHW z_e 1
         embedding_l2_squared = torch.sum(self._embedding.weight**2, dim=1) # _num_embeddings
-        inner_product = torch.matmul(ze_flattened, self._embedding.weight.t()) # BHW x _num_embeddings
+        inner_product = torch.matmul(ze_flattened, self._embedding.weight.t()) # BHW z_e _num_embeddings
         distances = flat_input_l2_squared + embedding_l2_squared - 2 * inner_product
 
-        # encoding_indices: BHW x 1
+        # encoding_indices: BHW z_e 1
         encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
-        # encoding placeholder: BHW x _num_embeddings
+        # encoding placeholder: BHW z_e _num_embeddings
         encodings = torch.zeros(encoding_indices.shape[0], self._num_embeddings, device=z_e.device)
-        # encodings: BHW x _num_embeddings
+        # encodings: BHW z_e _num_embeddings
         encodings.scatter_(1, encoding_indices, 1) # one-hot encoding
 
-        # z_q: BHW x C
-        z_q = torch.matmul(encodings, self._embedding.weight).view(input_shape) # B x H x W x C
+        # z_q: BHW z_e C
+        z_q = torch.matmul(encodings, self._embedding.weight).view(input_shape) # B z_e H z_e W z_e C
 
         # compute the commitment loss
-        # commitment_loss: B x 1 x H x W
+        # commitment_loss: B z_e 1 z_e H z_e W
         commitment_loss = self._commitment_cost * F.mse_loss(z_q.detach(), z_e)
         # compute the z_q latent loss
         e2z_loss = F.mse_loss(z_q, z_e.detach())
@@ -82,10 +82,10 @@ class VectorQuantizer(nn.Module):
         vq_loss = commitment_loss + e2z_loss
 
         # save z_q outputs
-        z_q = z_e + (z_q - z_e).detach() # B x C x H x W, straight-through gradient
+        z_q = z_e + (z_q - z_e).detach() # B z_e C z_e H z_e W, straight-through gradient
 
         # average pooling over the spatial dimensions
-        # avg_probs: B x _num_embeddings
+        # avg_probs: B z_e _num_embeddings
         avg_probs = torch.mean(encodings, dim=0)
         # codebook perplexity / usage: 1
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + self._epsilon)))
@@ -177,35 +177,35 @@ class VQGANCodebook(nn.Module):
         self._embedding.weight.data.uniform_(-1.0 / self._num_embeddings, 1.0 / self._num_embeddings)
 
     def forward(self, z_e):
-        # z_e: B x C x H x W
-        z_e = z_e.permute(0, 2, 3, 1).contiguous() # B x H x W x C
+        # z_e: B z_e C z_e H z_e W
+        z_e = z_e.permute(0, 2, 3, 1).contiguous() # B z_e H z_e W z_e C
         # flatten the _embedding vectors
         ze_flattened = z_e.view(-1, self._embedding_dim)
 
         # compute the distances between the input vectors and the _embedding vectors
-        # distances: BHW x _num_embeddings
+        # distances: BHW z_e _num_embeddings
         z_l2_squared = torch.sum(ze_flattened**2, dim=1, keepdim=True)
         embedding_l2_squared = torch.sum(self._embedding.weight ** 2, dim=1)
         inner_product = torch.matmul(ze_flattened, self._embedding.weight.t())
         distances = z_l2_squared + embedding_l2_squared - 2 * inner_product
 
-        # encoding_indices: BHW x 1
+        # encoding_indices: BHW z_e 1
         # z = torch.argmin(distances, dim=1)
         # # create the z_q with the _embedding vectors
-        # z_q = self._embedding(z).view(z_e.shape) # B x H x W x C
+        # z_q = self._embedding(z).view(z_e.shape) # B z_e H z_e W z_e C
 
-        # encoding_indices: BHW x 1
+        # encoding_indices: BHW z_e 1
         encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
-        # encoding placeholder: BHW x _num_embeddings
+        # encoding placeholder: BHW z_e _num_embeddings
         encodings = torch.zeros(encoding_indices.shape[0], self._num_embeddings, device=z_e.device)
-        # encodings: BHW x _num_embeddings
+        # encodings: BHW z_e _num_embeddings
         encodings.scatter_(1, encoding_indices, 1)  # one-hot encoding
 
-        # z_q: BHW x C
-        z_q = torch.matmul(encodings, self._embedding.weight).view(z_e.shape) # B x H x W x C
+        # z_q: BHW z_e C
+        z_q = torch.matmul(encodings, self._embedding.weight).view(z_e.shape) # B z_e H z_e W z_e C
 
         # compute the commitment loss
-        # commitment_loss: B x 1 x H x W
+        # commitment_loss: B z_e 1 z_e H z_e W
         commitment_loss = self._beta * F.mse_loss(z_q.detach(), z_e)
         # loss term to move the embedding vectors closer to the input vectors
         e2z_loss = F.mse_loss(z_q, z_e.detach())
@@ -216,7 +216,7 @@ class VQGANCodebook(nn.Module):
         z_q = z_e + (z_q - z_e).detach()
 
         # average pooling over the spatial dimensions
-        # avg_probs: B x _num_embeddings
+        # avg_probs: B z_e _num_embeddings
         avg_probs = torch.mean(encodings, dim=0)
 
         # codebook perplexity / usage: 1

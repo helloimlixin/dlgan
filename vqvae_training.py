@@ -92,7 +92,7 @@ def train_vqvae():
     perceptual_loss_criterion = LPIPS(net='vgg').to(device)
 
     vqvae.train() # set the vqvae to training mode
-    writer = SummaryWriter('./runs/vanilla') # create a writer object for TensorBoard
+    writer = SummaryWriter('./runs/vqvae-ema') # create a writer object for TensorBoard
 
     for i in range(num_training_updates):
         # sample the mini-batch
@@ -148,10 +148,11 @@ def train_vqvae():
             writer.add_embedding(quantized.view(train_batch_size, -1), label_img=originals, global_step=i+1)
 
         # save the gradient visualization
-        # if (i + 1) % 100 == 0:
-        #     for name, param in vqvae.named_parameters():
-        #         writer.add_histogram(name, param.clone().cpu().data_paths.numpy(), i+1)
-        #         writer.add_histogram(name+'/grad', param.grad.clone().cpu().data_paths.numpy(), i+1)
+        if (i + 1) % 100 == 0:
+            for name, param in vqvae.named_parameters():
+                writer.add_histogram(name, param.clone().cpu().data.numpy(), i + 1)
+                if param.grad is not None:
+                    writer.add_histogram(name+'/grad', param.grad.clone().cpu().data.numpy(), i+1)
 
         # save the training information
         if (i + 1) % 100 == 0:
@@ -160,7 +161,7 @@ def train_vqvae():
 
         # save the vqvae
         if (i + 1) % 1000 == 0:
-            torch.save(vqvae.state_dict(), './checkpoints/vanilla/vqvae_%d.pt' % (i + 1))
+            torch.save(vqvae.state_dict(), './checkpoints/vqvae/vqvae_ema_%d.pt' % (i + 1))
 
         # save the images
         if (i + 1) % 1000 == 0:
