@@ -43,7 +43,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 4
 test_batch_size = 32
-num_training_updates = 50000
+num_training_updates = 160000
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -65,7 +65,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 l2_loss_factor = 0.5
 lpips_loss_factor = 1 - l2_loss_factor
 
-sparsity_level = 10 # number of atoms selected
+sparsity_level = 500 # number of atoms selected
 
 epsilon = 1e-10 # a small number to avoid the numerical issues
 
@@ -83,10 +83,11 @@ dlvae = DLVAE(in_channels=3,
             num_residual_layers=num_residual_layers,
             embedding_dim=embedding_dim,
             num_embeddings=num_embeddings,
-            sparsity_level=sparsity_level,
-            decay=decay).to(device)
+            commitment_cost=commitment_cost,
+            epsilon=epsilon).to(device)
 
-# dlvae.load_state_dict(torch.load('./checkpoints/dictlearn-10/vqvae_100000.pt'))
+dlvae.load_state_dict(torch.load(f'./checkpoints/dlvae/ema-{sparsity_level}/ffhq/iter_40000.pt'))
+dlvae.eval()
 
 # dlvae_optimizer
 optimizer = torch.optim.Adam(dlvae.parameters(), lr=learning_rate, amsgrad=False)
@@ -110,7 +111,7 @@ def train_dlvae():
     perceptual_loss_criterion = LPIPS(net='vgg').to(device)
 
     dlvae.train() # set the vqvae to training mode
-    dirpath = Path(f'./runs/ffhq/dlvae-ema-{sparsity_level}')
+    dirpath = Path(f'./runs/dlvae/vanilla/ffhq')
     if dirpath.exists() and dirpath.is_dir():
         shutil.rmtree(dirpath)
     writer = SummaryWriter(dirpath) # create a writer object for TensorBoard
@@ -125,6 +126,8 @@ def train_dlvae():
         optimizer.zero_grad() # clear the gradients
 
         # forward pass
+        # x_lr = F.interpolate(x, scale_factor=0.25, mode='bilinear', align_corners=False)
+        # x_hr = F.interpolate(x_lr, scale_factor=4, mode='bilinear', align_corners=False)
         dl_loss, data_recon, perplexity, representation = dlvae(x)
 
         recon_error = l2_loss_factor * loss_function(data_recon, x) + lpips_loss_factor * perceptual_loss_criterion(data_recon, x).mean()
@@ -143,6 +146,8 @@ def train_dlvae():
             print()
 
         originals = x + 0.5 # add 0.5 to match the range of the original images [0, 1]
+        # low_res = x_lr + 0.5 # add 0.5 to match the range of the original images [0, 1]
+        # inputs = x_hr + 0.5 # add 0.5 to match the range of the original images [0, 1]
         reconstructions = data_recon + 0.5 # add 0.5 to match the range of the original images [0, 1]
 
         # save training information for TensorBoard
@@ -156,34 +161,38 @@ def train_dlvae():
         train_res_perplexity.append(perplexity.item())
 
         # save the reconstructed images
-        if (i + 1) % 100 == 0:
-            writer.add_images('Train Original Images', originals, i+1)
+        if (i + 1) % 1000 == 0:
+            # writer.add_images('Train Low Resolution Images', low_res, i+1)
+            writer.add_images('Train Target Images', originals, i+1)
+            # writer.add_images('Train Input Images', inputs, i+1)
             writer.add_images('Train Reconstructed Images', reconstructions, i+1)
 
         # save the codebook
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             writer.add_embedding(representation.view(train_batch_size, -1), label_img=originals, global_step=i+1)
 
         # save the gradient visualization
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             for name, param in dlvae.named_parameters():
                 writer.add_histogram(name, param.clone().cpu().data.numpy(), i+1)
                 if param.grad is not None:
                     writer.add_histogram(name+'/grad', param.grad.clone().cpu().data.numpy(), i+1)
 
         # save the training information
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             np.save('train_res_recon_error.npy', train_res_recon_error)
             np.save('train_res_perplexity.npy', train_res_perplexity)
 
         # save the vqvae
-        if (i + 1) % 1000 == 0:
-            torch.save(dlvae.state_dict(), f'./checkpoints/ffhq/dlvae-ema-{sparsity_level}/dlvae_ema_{sparsity_level}_{(i + 1)}.pt')
+        if (i + 1) % 10000 == 0:
+            torch.save(dlvae.state_dict(), f'./checkpoints/dlvae/vanilla/ffhq/iter_{(i + 1)}.pt')
 
         # save the images
         if (i + 1) % 1000 == 0:
-            torchvisionutils.save_image(originals, f'./dlvae_results/ffhq/ema-{sparsity_level}/originals_{(i + 1)}.png')
-            torchvisionutils.save_image(reconstructions, f'./dlvae_results/ffhq/ema-{sparsity_level}/reconstructions_{(i + 1)}.png')
+            # torchvisionutils.save_image(low_res, f'./dlvae_results/ffhq/sr/ema-{sparsity_level}/low_res_{(i + 1)}.png')
+            # torchvisionutils.save_image(inputs, f'./dlvae_results/ffhq/sr/ema-{sparsity_level}/input_{(i + 1)}.png')
+            torchvisionutils.save_image(originals, f'./results/dlvae/vanilla/ffhq/target_{(i + 1)}.png')
+            torchvisionutils.save_image(reconstructions, f'./results/dlvae/vanilla/ffhq/reconstruction_{(i + 1)}.png')
 
     writer.close()
 

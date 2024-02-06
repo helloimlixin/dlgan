@@ -17,12 +17,12 @@
 import torch.nn as nn
 from .encoder import VQVAEEncoder
 from .decoder import VQVAEDecoder
-from .dictlearn import DictLearn, DictLearnEMA
+from .dictlearn import DictLearn, DictionaryLearningSimple
 class DLVAE(nn.Module):
     '''DL-VAE model.'''
 
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, num_embeddings,
-                 embedding_dim, sparsity_level, decay=0, epsilon=1e-10):
+                 embedding_dim, commitment_cost, epsilon=1e-10):
         super(DLVAE, self).__init__()
 
         self._encoder = VQVAEEncoder(in_channels=in_channels,
@@ -35,16 +35,11 @@ class DLVAE(nn.Module):
                                       kernel_size=1,
                                       stride=1)
 
-        if decay > 0.0:
-            print("Using EMA")
-            self._dl_bottleneck = DictLearnEMA(dim=embedding_dim,
-                                                num_atoms=num_embeddings,
-                                                sparsity_level=sparsity_level,
-                                                decay=decay, epsilon=epsilon)
-        else:
-            self._dl_bottleneck = DictLearn(dim=embedding_dim,
-                                            num_atoms=num_embeddings,
-                                            sparsity_level=sparsity_level)
+
+        self._dl_bottleneck = DictionaryLearningSimple(dim=embedding_dim,
+                                                       num_atoms=num_embeddings,
+                                                       commitment_cost=commitment_cost,
+                                                       epsilon=epsilon)
 
         self._decoder = VQVAEDecoder(in_channels=embedding_dim,
                                 num_hiddens=num_hiddens,

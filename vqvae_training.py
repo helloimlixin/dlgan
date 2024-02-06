@@ -29,7 +29,8 @@ import numpy as np
 import time
 import os
 
-from utils import init_weights, load_data
+from pathlib import Path
+import shutil
 
 # fix the bug of "OMP: Error #15: Initializing libiomp5.dylib, but found libiomp5.dylib already initialized."
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
@@ -76,6 +77,8 @@ vqvae = VQVAE(in_channels=3,
               commitment_cost=commitment_cost,
               decay=decay).to(device)
 
+vqvae.load_state_dict(torch.load('./checkpoints/vqvae/vqvae_ema_100000.pt'))
+
 # vqvae_optimizer
 vqvae_optimizer = torch.optim.Adam(vqvae.parameters(), lr=learning_rate, amsgrad=False)
 
@@ -92,7 +95,12 @@ def train_vqvae():
     perceptual_loss_criterion = LPIPS(net='vgg').to(device)
 
     vqvae.train() # set the vqvae to training mode
-    writer = SummaryWriter('./runs/vqvae-ema') # create a writer object for TensorBoard
+
+    dirpath = Path(f'./runs/vqvae/ema/ffhq')
+    if dirpath.exists() and dirpath.is_dir():
+        shutil.rmtree(dirpath)
+
+    writer = SummaryWriter(dirpath) # create a writer object for TensorBoard
 
     for i in range(num_training_updates):
         # sample the mini-batch
@@ -165,8 +173,8 @@ def train_vqvae():
 
         # save the images
         if (i + 1) % 1000 == 0:
-            torchvisionutils.save_image(originals, './vqvae_results/ema/originals_%d.png' % (i + 1))
-            torchvisionutils.save_image(reconstructions, './vqvae_results/ema/reconstructions_%d.png' % (i + 1))
+            torchvisionutils.save_image(originals, './results/vqvae/ema/originals_%d.png' % (i + 1))
+            torchvisionutils.save_image(reconstructions, './results/vqvae/ema/reconstructions_%d.png' % (i + 1))
 
     writer.close()
 

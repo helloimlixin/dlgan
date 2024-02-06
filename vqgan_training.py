@@ -23,7 +23,7 @@ import torch.nn.functional as F
 from torchvision import utils as vutils
 
 from models.discriminator import Discriminator
-from models.lpips import LPIPS
+from lpips import LPIPS
 from models.vqgan import VQGAN
 from utils import init_weights, load_data
 
@@ -31,10 +31,9 @@ from utils import init_weights, load_data
 class TrainVQGAN:
     def __init__(self, args):
         self.vqgan = VQGAN(args).to(device=args.device)
-        # self.vqgan.load_checkpoint('vqgan_ckpts/vqgan_epoch_120.pt')
+        self.vqgan.load_checkpoint('vqgan_ckpts/vqgan_epoch_0.pt')
         self.discriminator = Discriminator(args).to(device=args.device)
         self.discriminator.apply(init_weights)
-        self.perceptual_loss = LPIPS().eval().to(device=args.device)
         self.opt_vq, self.opt_disc = self.configure_optimizers(args)
 
         self.prepare_training()
@@ -64,6 +63,7 @@ class TrainVQGAN:
     def train(self, args):
         train_dataset = load_data(args)
         steps_per_epoch = len(train_dataset)
+        perceptual_loss_criterion = LPIPS(net='vgg').to(args.device)
         for epoch in range(args.epochs):
             with tqdm(range(len(train_dataset))) as pbar:
                 for i, imgs in zip(pbar, train_dataset):
@@ -75,10 +75,9 @@ class TrainVQGAN:
 
                     disc_factor = self.vqgan.adopt_weight(args.disc_factor, epoch*steps_per_epoch+i, threshold=args.disc_start)
 
-                    perceptual_loss = self.perceptual_loss(imgs, decoded_images)
                     rec_loss = torch.abs(imgs - decoded_images)
-                    perceptual_rec_loss = args.perceptual_loss_factor * perceptual_loss + args.rec_loss_factor * rec_loss
-                    perceptual_rec_loss = perceptual_rec_loss.mean()
+                    perceptual_rec_loss = args.perceptual_loss_factor * perceptual_loss_criterion(imgs, decoded_images) + args.rec_loss_factor * rec_loss
+                    perceptual_rec_loss = torch.mean(perceptual_rec_loss)
                     g_loss = -torch.mean(disc_fake)
 
                     λ = self.vqgan.calculate_lambda(perceptual_rec_loss, g_loss)
@@ -113,9 +112,9 @@ class TrainVQGAN:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="VQGAN")
-    parser.add_argument('--embedding-dim', type=int, default=256, help='Latent dimension n_z (default: 256)')
+    parser.add_argument('--embedding-dim', type=int, default=64, help='Latent dimension n_z (default: 256)')
     parser.add_argument('--image-size', type=int, default=256, help='Image height and width (default: 256)')
-    parser.add_argument('--num-embeddings', type=int, default=1024, help='Number of codebook vectors (default: 256)')
+    parser.add_argument('--num-embeddings', type=int, default=512, help='Number of codebook vectors (default: 256)')
     parser.add_argument('--beta', type=float, default=0.25, help='Commitment loss scalar (default: 0.25)')
     parser.add_argument('--num-channels', type=int, default=3, help='Number of channels of images (default: 3)')
     parser.add_argument('--dataset-path', type=str, default='/data_paths', help='Path to data_paths (default: /data_paths)')
