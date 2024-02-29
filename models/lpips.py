@@ -1,7 +1,7 @@
 import os
 import torch
 import torch.nn as nn
-from torchvision.models import vgg16
+from torchvision.models import vgg16, VGG16_Weights
 from collections import namedtuple
 import requests
 from tqdm import tqdm
@@ -93,7 +93,7 @@ class NetLinLayer(nn.Module):
 class VGG16(nn.Module):
     def __init__(self):
         super(VGG16, self).__init__()
-        vgg_pretrained_features = vgg16(pretrained=True).features
+        vgg_pretrained_features = vgg16(weights=VGG16_Weights.DEFAULT).features
         slices = [vgg_pretrained_features[i] for i in range(30)]
         self.slice1 = nn.Sequential(*slices[0:4])
         self.slice2 = nn.Sequential(*slices[4:9])

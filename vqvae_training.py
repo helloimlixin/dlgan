@@ -21,7 +21,8 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import utils as torchvisionutils
-from dataloaders.flowers import FlowersDataset
+# from dataloaders.flowers import FlowersDataset
+from dataloaders.ffhq import FFHQDataset
 
 from lpips import LPIPS
 from models.vqvae import VQVAE
@@ -38,18 +39,18 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 4
 test_batch_size = 32
-num_training_updates = 100000
+num_training_updates = 20000
 
-num_hiddens = 128
-num_residual_hiddens = 32
+num_hiddens = 64
+num_residual_hiddens = 4
 num_residual_layers = 2
 
-embedding_dim = 64
-num_embeddings = 512
+embedding_dim = 16
+num_embeddings = 32
 
 commitment_cost = 0.25
 
-decay = 0.99
+decay = 0.
 
 learning_rate = 1e-4
 
@@ -63,9 +64,12 @@ lpips_loss_factor = 1 - l2_loss_factor
 # data_paths loaders
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
 
-flowers_dataset = FlowersDataset(root='./data/flowers')
-train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
+# flowers_dataset = FlowersDataset(root='./data/flowers')
+# train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
 # test_loader = get_cifar10_test_loader(batch_size=test_batch_size)()
+
+ffhq_dataset = FFHQDataset(root='./data/ffhq')
+train_loader = DataLoader(ffhq_dataset, batch_size=train_batch_size, shuffle=True)
 
 # vqvae
 vqvae = VQVAE(in_channels=3,
@@ -77,7 +81,7 @@ vqvae = VQVAE(in_channels=3,
               commitment_cost=commitment_cost,
               decay=decay).to(device)
 
-vqvae.load_state_dict(torch.load('./checkpoints/vqvae/vqvae_ema_100000.pt'))
+# vqvae.load_state_dict(torch.load('./checkpoints/vqvae/vqvae_ema_100000.pt'))
 
 # vqvae_optimizer
 vqvae_optimizer = torch.optim.Adam(vqvae.parameters(), lr=learning_rate, amsgrad=False)
@@ -96,6 +100,7 @@ def train_vqvae():
 
     vqvae.train() # set the vqvae to training mode
 
+    # remove the previous runs
     dirpath = Path(f'./runs/vqvae/ema/ffhq')
     if dirpath.exists() and dirpath.is_dir():
         shutil.rmtree(dirpath)
@@ -147,23 +152,23 @@ def train_vqvae():
             writer.add_graph(vqvae, x)
 
         # save the reconstructed images
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             writer.add_images('Train Original Images', originals, i+1)
             writer.add_images('Train Reconstructed Images', reconstructions, i+1)
 
         # save the codebook
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             writer.add_embedding(quantized.view(train_batch_size, -1), label_img=originals, global_step=i+1)
 
         # save the gradient visualization
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             for name, param in vqvae.named_parameters():
                 writer.add_histogram(name, param.clone().cpu().data.numpy(), i + 1)
                 if param.grad is not None:
                     writer.add_histogram(name+'/grad', param.grad.clone().cpu().data.numpy(), i+1)
 
         # save the training information
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             np.save('train_res_recon_error.npy', train_res_recon_error)
             np.save('train_res_perplexity.npy', train_res_perplexity)
 

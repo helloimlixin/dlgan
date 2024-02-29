@@ -17,12 +17,12 @@
 import torch.nn as nn
 from .encoder import VQVAEEncoder
 from .decoder import VQVAEDecoder
-from .dictlearn import DictLearn, DictionaryLearningSimple
+from .dictlearn import DictionaryLearningSimple, DictionaryLearningEMA
 class DLVAE(nn.Module):
     '''DL-VAE model.'''
 
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, num_embeddings,
-                 embedding_dim, commitment_cost, epsilon=1e-10):
+                 embedding_dim, commitment_cost, sparsity_level, decay, epsilon=1e-10):
         super(DLVAE, self).__init__()
 
         self._encoder = VQVAEEncoder(in_channels=in_channels,
@@ -39,7 +39,15 @@ class DLVAE(nn.Module):
         self._dl_bottleneck = DictionaryLearningSimple(dim=embedding_dim,
                                                        num_atoms=num_embeddings,
                                                        commitment_cost=commitment_cost,
+                                                       sparsity_level=sparsity_level,
                                                        epsilon=epsilon)
+
+        # self._dl_bottleneck = DictionaryLearningEMA(dim=embedding_dim,
+        #                                            num_atoms=num_embeddings,
+        #                                            commitment_cost=commitment_cost,
+        #                                            sparsity_level=sparsity_level,
+        #                                            decay=decay,
+        #                                            epsilon=epsilon)
 
         self._decoder = VQVAEDecoder(in_channels=embedding_dim,
                                 num_hiddens=num_hiddens,
@@ -49,8 +57,7 @@ class DLVAE(nn.Module):
     def forward(self, x):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
-        representation = self._dl_bottleneck(z)
-        dlloss, z_recon, perplexity, representation = self._dl_bottleneck.loss(z, representation)
+        dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z)
         x_recon = self._decoder(z_recon)
 
         return dlloss, x_recon, perplexity, z
