@@ -41,15 +41,15 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
 train_batch_size = 4
-test_batch_size = 32
-num_training_updates = 20000
+test_batch_size = 4
+num_training_updates = 200000
 
-num_hiddens = 64
+num_hiddens = 128
 num_residual_hiddens = 4
 num_residual_layers = 2
 
 embedding_dim = 16
-num_embeddings = 32
+num_embeddings = 64
 
 commitment_cost = 0.25
 
@@ -73,7 +73,11 @@ epsilon = 1e-10 # a small number to avoid the numerical issues
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
 ffhq_dataset = FFHQDataset(root='./data/ffhq')
-train_loader = DataLoader(ffhq_dataset, batch_size=train_batch_size, shuffle=True, pin_memory=True)
+train_loader = DataLoader(ffhq_dataset,
+                          batch_size=train_batch_size,
+                          shuffle=True,
+                          pin_memory=True,
+                          num_workers=0)
 
 # dlvae
 dlvae = DLVAE(in_channels=3,
@@ -87,7 +91,7 @@ dlvae = DLVAE(in_channels=3,
             decay=decay,
             epsilon=epsilon).to(device)
 
-dlvae.load_state_dict(torch.load(f'./checkpoints/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/iter_20000.pt'))
+dlvae.load_state_dict(torch.load(f'./checkpoints/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/iter_200000.pt'))
 # dlvae.eval()
 
 # dlvae_optimizer
@@ -186,34 +190,34 @@ def train_dlvae():
         train_res_perplexity.append(perplexity.item())
 
         # save the reconstructed images
-        if (i + 1) % 1000 == 0:
+        if (i + 1) % 100 == 0:
             # writer.add_images('Train Low Resolution Images', low_res, i+1)
             writer.add_images('Train Target Images', originals, i+1)
             # writer.add_images('Train Input Images', inputs, i+1)
             writer.add_images('Train Reconstructed Images', reconstructions, i+1)
 
         # save the codebook
-        if (i + 1) % 1000 == 0:
+        if (i + 1) % 100 == 0:
             writer.add_embedding(representation.view(train_batch_size, -1), label_img=originals, global_step=i+1)
 
         # save the gradient visualization
-        if (i + 1) % 1000 == 0:
+        if (i + 1) % 100 == 0:
             for name, param in dlvae.named_parameters():
                 writer.add_histogram(name, param.clone().cpu().data.numpy(), i+1)
                 if param.grad is not None:
                     writer.add_histogram(name+'/grad', param.grad.clone().cpu().data.numpy(), i+1)
 
         # save the training information
-        if (i + 1) % 1000 == 0:
+        if (i + 1) % 100 == 0:
             np.save('train_res_recon_error.npy', train_res_recon_error)
             np.save('train_res_perplexity.npy', train_res_perplexity)
 
-        # save the vqvae
-        if (i + 1) % 10000 == 0:
+        # save the dlvae
+        if (i + 1) % 1000 == 0:
             torch.save(dlvae.state_dict(), f'./checkpoints/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/iter_{(i + 1)}.pt')
 
         # save the images
-        if (i + 1) % 1000 == 0:
+        if (i + 1) % 100 == 0:
             # torchvisionutils.save_image(low_res, f'./dlvae_results/ffhq/sr/ema-{sparsity_level}/low_res_{(i + 1)}.png')
             # torchvisionutils.save_image(inputs, f'./dlvae_results/ffhq/sr/ema-{sparsity_level}/input_{(i + 1)}.png')
             torchvisionutils.save_image(originals, f'./results/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/target_{(i + 1)}.png')

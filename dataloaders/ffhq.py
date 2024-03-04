@@ -22,26 +22,30 @@ from PIL import Image
 from torchvision.io import read_image
 from torch.utils.data import Dataset
 import albumentations
+from albumentations.pytorch import ToTensorV2
 
 class FFHQDataset(Dataset):
     '''Get training data_paths from the FFHQ dataset.'''
 
-    def __init__(self, root, size=512, transform=None):
+    def __init__(self, root, size=512, crop_size=256, transform=None):
         self.root = root
         self.size = size
+        self.crop_size = crop_size
         self.transform = transform
         self.data_paths = os.listdir(root)
         self.data_paths.sort()
 
         self.rescaler = albumentations.SmallestMaxSize(max_size=self.size)
-        self.center_crop = albumentations.CenterCrop(height=self.size, width=self.size)
-        self.preprocess = albumentations.Compose([self.rescaler, self.center_crop])
+        self.random_crop = albumentations.RandomCrop(height=self.crop_size, width=self.crop_size)
+        self.preprocess = albumentations.Compose([self.rescaler,
+                                                  self.random_crop])
 
     def __len__(self):
         return len(self.data_paths)
 
     def preprocess_image(self, image_path):
-        # image = read_image(os.path.join(self.root, image_path))
+        # image = read_image(os.path.join(self.root, image_path)).detach().numpy()
+        #
         image = Image.open(os.path.join(self.root, image_path))
         if not image.mode == 'RGB':
             image = image.convert('RGB')

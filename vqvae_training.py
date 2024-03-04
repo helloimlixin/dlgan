@@ -39,7 +39,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 4
 test_batch_size = 32
-num_training_updates = 20000
+num_training_updates = 200000
 
 num_hiddens = 64
 num_residual_hiddens = 4
@@ -50,7 +50,7 @@ num_embeddings = 32
 
 commitment_cost = 0.25
 
-decay = 0.
+decay = 0.99
 
 learning_rate = 1e-4
 

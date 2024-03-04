@@ -76,7 +76,7 @@ class DictionaryLearningSimple(nn.Module):
         min_dists, encoding_indices = distances.topk(self.sparsity_level, dim=1, largest=False)
 
         encodings = torch.zeros(encoding_indices.shape[0], self.num_atoms, device=z_e.device)
-        encodings.scatter_(1, encoding_indices, 1)
+        encodings.scatter_(1, encoding_indices, 1) / self.sparsity_level
 
         # representation_sparse = encodings.mul(representation).to_sparse_csr() # sparsity representation
         representation_sparse = encodings * representation  # sparsity representation
@@ -172,10 +172,10 @@ class DictionaryLearningEMA(nn.Module):
         encodings = torch.zeros(encoding_indices.shape[0], self.num_atoms, device=z_e.device)
         encodings.scatter_(1, encoding_indices, 1)
 
-        representation = encodings * representation  # sparsity representation
+        representation_sparse = encodings * representation / self.sparsity_level # sparsity representation
 
         # compute the reconstruction from the representation
-        z_dl = torch.matmul(representation, self.dictionary.weight)  # reconstruction: B z_e D
+        z_dl = torch.matmul(representation_sparse, self.dictionary.weight)  # reconstruction: B z_e D
         z_dl = z_dl.view(ze_shape).contiguous()
 
         # Use EMA to update the embedding vectors
@@ -193,12 +193,13 @@ class DictionaryLearningEMA(nn.Module):
             self._ema_w = nn.Parameter(self._ema_w * self.decay + (1 - self.decay) * dw)
 
             self.dictionary.weight = nn.Parameter(self._ema_w / self._ema_cluster_size.unsqueeze(1))
+            self.dictionary.weight = nn.Parameter(F.normalize(self.dictionary.weight, dim=1))
 
         # Loss
         e_latent_loss = F.mse_loss(z_dl.detach(), z_e)
         loss = self.commitment_cost * e_latent_loss
 
-        z_dl = z_e + (z_dl - z_e).detach()  # straight-through gradient
+        z_dl = z_e + (z_dl - z_e).detach() # straight-through gradient
 
         # average pooling over the spatial dimensions
         # avg_probs: B z_e _num_embeddings
@@ -209,5 +210,5 @@ class DictionaryLearningEMA(nn.Module):
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + self._epsilon)))
 
         # return representation, reconstruction, perplexity, regularization
-        return loss, z_dl.permute(0, 3, 1, 2).contiguous(), perplexity, representation
+        return loss, z_dl.permute(0, 3, 1, 2).contiguous(), perplexity, representation_sparse
 
