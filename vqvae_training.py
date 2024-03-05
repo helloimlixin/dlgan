@@ -21,8 +21,9 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import utils as torchvisionutils
+from torchvision.datasets import ImageFolder
 # from dataloaders.flowers import FlowersDataset
-from dataloaders.ffhq import FFHQDataset
+# from dataloaders.ffhq import FFHQDataset
 
 from lpips import LPIPS
 from models.vqvae import VQVAE
@@ -68,7 +69,8 @@ lpips_loss_factor = 1 - l2_loss_factor
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
 # test_loader = get_cifar10_test_loader(batch_size=test_batch_size)()
 
-ffhq_dataset = FFHQDataset(root='./data/ffhq')
+# ffhq_dataset = FFHQDataset(root='./data/ffhq')
+ffhq_dataset = ImageFolder(root='./data/ffhq-100')
 train_loader = DataLoader(ffhq_dataset, batch_size=train_batch_size, shuffle=True)
 
 # vqvae
@@ -174,12 +176,12 @@ def train_vqvae():
 
         # save the vqvae
         if (i + 1) % 1000 == 0:
-            torch.save(vqvae.state_dict(), './checkpoints/vqvae/vqvae_ema_%d.pt' % (i + 1))
+            torch.save(vqvae.state_dict(), './checkpoints/vqvae-ema/iter_%d.pt' % (i + 1))
 
         # save the images
         if (i + 1) % 1000 == 0:
-            torchvisionutils.save_image(originals, './results/vqvae/ema/originals_%d.png' % (i + 1))
-            torchvisionutils.save_image(reconstructions, './results/vqvae/ema/reconstructions_%d.png' % (i + 1))
+            torchvisionutils.save_image(originals, './results/vqvae-ema/originals_%d.png' % (i + 1))
+            torchvisionutils.save_image(reconstructions, './results/vqvae-ema/reconstructions_%d.png' % (i + 1))
 
     writer.close()
 
