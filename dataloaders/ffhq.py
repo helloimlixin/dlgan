@@ -27,7 +27,7 @@ from albumentations.pytorch import ToTensorV2
 class FFHQDataset(Dataset):
     '''Get training data_paths from the FFHQ dataset.'''
 
-    def __init__(self, root, size=512, crop_size=256, transform=None):
+    def __init__(self, root, size=512, crop_size=32, transform=None):
         self.root = root
         self.size = size
         self.crop_size = crop_size

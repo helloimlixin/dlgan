@@ -76,7 +76,7 @@ class DictionaryLearningSimple(nn.Module):
         min_dists, encoding_indices = distances.topk(self.sparsity_level, dim=1, largest=False)
 
         encodings = torch.zeros(encoding_indices.shape[0], self.num_atoms, device=z_e.device)
-        encodings.scatter_(1, encoding_indices, 1) / self.sparsity_level
+        encodings.scatter_(1, encoding_indices, 1)
 
         # representation_sparse = encodings.mul(representation).to_sparse_csr() # sparsity representation
         representation_sparse = encodings * representation  # sparsity representation

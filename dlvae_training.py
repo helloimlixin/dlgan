@@ -29,6 +29,7 @@ from dataloaders.flowers import FlowersDataset
 from dataloaders.ffhq import FFHQDataset
 
 from models.dlvae import DLVAE
+from models.lpips import LPIPS
 from skimage.metrics import structural_similarity as ssim
 import numpy as np
 import time
@@ -48,8 +49,8 @@ num_hiddens = 128
 num_residual_hiddens = 4
 num_residual_layers = 2
 
-embedding_dim = 16
-num_embeddings = 64
+embedding_dim = 32
+num_embeddings = 128
 
 commitment_cost = 0.25
 
@@ -75,7 +76,7 @@ epsilon = 1e-10 # a small number to avoid the numerical issues
 ffhq_dataset = FFHQDataset(root='./data/ffhq')
 train_loader = DataLoader(ffhq_dataset,
                           batch_size=train_batch_size,
-                          shuffle=True,
+                          shuffle=False,
                           pin_memory=True,
                           num_workers=0)
 
@@ -91,7 +92,7 @@ dlvae = DLVAE(in_channels=3,
             decay=decay,
             epsilon=epsilon).to(device)
 
-dlvae.load_state_dict(torch.load(f'./checkpoints/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/iter_200000.pt'))
+# dlvae.load_state_dict(torch.load(f'./checkpoints/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/iter_200000.pt'))
 # dlvae.eval()
 
 # dlvae_optimizer
@@ -109,7 +110,6 @@ def loss_function(recon_x, x):
     return recon_error
 
 def train_dlvae():
-    from lpips import LPIPS
     '''Train the vqvae.'''
     train_res_recon_error = []
     train_res_recon_psnr = []
@@ -117,7 +117,7 @@ def train_dlvae():
     train_res_recon_lpips = []
     train_res_perplexity = []
 
-    perceptual_loss_criterion = LPIPS(net='vgg').to(device)
+    perceptual_loss_criterion = LPIPS().to(device)
 
     dlvae.train() # set the vqvae to training mode
     dirpath = Path(f'./runs/dlvae/vanilla/sparsity-{sparsity_level}/ffhq')
@@ -145,8 +145,9 @@ def train_dlvae():
         # x_lr = F.interpolate(x, scale_factor=0.25, mode='bilinear', align_corners=False)
         # x_hr = F.interpolate(x_lr, scale_factor=4, mode='bilinear', align_corners=False)
         dl_loss, data_recon, perplexity, representation = dlvae(x)
+        perceptual_loss = perceptual_loss_criterion(data_recon, x).mean()
 
-        recon_error = l2_loss_factor * loss_function(data_recon, x) + lpips_loss_factor * perceptual_loss_criterion(data_recon, x).mean()
+        recon_error = l2_loss_factor * loss_function(data_recon, x) + lpips_loss_factor * perceptual_loss
 
         loss = recon_error + dl_loss # total loss
 
@@ -172,12 +173,12 @@ def train_dlvae():
         reconstructions = data_recon + 0.5 # add 0.5 to match the range of the original images [0, 1]
 
         psnr = 10 * torch.log10(1 / loss_function(data_recon, x))
-        lpips = perceptual_loss_criterion(data_recon, x).mean()
+
 
         # save training information for TensorBoard
         writer.add_scalar('Train Recon Error', recon_error.item(), i+1)
         writer.add_scalar('Train PSNR', psnr.item(), i+1)
-        writer.add_scalar('Train LPIPS', lpips.item(), i+1)
+        writer.add_scalar('Train LPIPS', perceptual_loss.item(), i+1)
         writer.add_scalar('Train Dictionary Learning Loss', dl_loss.item(), i+1)
         writer.add_scalar('Train Perplexity', perplexity.item(), i+1)
         writer.add_scalar('Train Loss', loss.item(), i+1)
@@ -186,38 +187,38 @@ def train_dlvae():
         train_res_recon_error.append(recon_error.item())
         train_res_recon_psnr.append(psnr.item())
         # train_res_recon_ssim.append(torch.mean(torch.Tensor([torch.Tensor(ssim(x[i], reconstructions[i], data_range=1, size_average=True)) for i in range(x.size(0))])).item())
-        train_res_recon_lpips.append(lpips.item())
+        train_res_recon_lpips.append(perceptual_loss.item())
         train_res_perplexity.append(perplexity.item())
 
         # save the reconstructed images
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             # writer.add_images('Train Low Resolution Images', low_res, i+1)
             writer.add_images('Train Target Images', originals, i+1)
             # writer.add_images('Train Input Images', inputs, i+1)
             writer.add_images('Train Reconstructed Images', reconstructions, i+1)
 
         # save the codebook
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             writer.add_embedding(representation.view(train_batch_size, -1), label_img=originals, global_step=i+1)
 
         # save the gradient visualization
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             for name, param in dlvae.named_parameters():
                 writer.add_histogram(name, param.clone().cpu().data.numpy(), i+1)
                 if param.grad is not None:
                     writer.add_histogram(name+'/grad', param.grad.clone().cpu().data.numpy(), i+1)
 
         # save the training information
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             np.save('train_res_recon_error.npy', train_res_recon_error)
             np.save('train_res_perplexity.npy', train_res_perplexity)
 
         # save the dlvae
-        if (i + 1) % 1000 == 0:
+        if (i + 1) % 10000 == 0:
             torch.save(dlvae.state_dict(), f'./checkpoints/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/iter_{(i + 1)}.pt')
 
         # save the images
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 1000 == 0:
             # torchvisionutils.save_image(low_res, f'./dlvae_results/ffhq/sr/ema-{sparsity_level}/low_res_{(i + 1)}.png')
             # torchvisionutils.save_image(inputs, f'./dlvae_results/ffhq/sr/ema-{sparsity_level}/input_{(i + 1)}.png')
             torchvisionutils.save_image(originals, f'./results/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/target_{(i + 1)}.png')

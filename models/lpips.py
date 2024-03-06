@@ -36,39 +36,41 @@ def get_ckpt_path(name, root):
         download(URL_MAP[name], path)
     return path
 
-
 class LPIPS(nn.Module):
     def __init__(self):
         super(LPIPS, self).__init__()
         self.scaling_layer = ScalingLayer()
         self.channels = [64, 128, 256, 512, 512]
         self.vgg = VGG16()
-        self.lins = nn.ModuleList([
-            NetLinLayer(self.channels[0]),
-            NetLinLayer(self.channels[1]),
-            NetLinLayer(self.channels[2]),
-            NetLinLayer(self.channels[3]),
-            NetLinLayer(self.channels[4])
-        ])
+
+        self.lin0 = NetLinLayer(self.channels[0])
+        self.lin1 = NetLinLayer(self.channels[1])
+        self.lin2 = NetLinLayer(self.channels[2])
+        self.lin3 = NetLinLayer(self.channels[3])
+        self.lin4 = NetLinLayer(self.channels[4])
+        self.linear_layers = nn.ModuleList([self.lin0, self.lin1, self.lin2, self.lin3, self.lin4])
 
         self.load_from_pretrained()
 
         for param in self.parameters():
             param.requires_grad = False
 
+        self.eval()
+
     def load_from_pretrained(self, name="vgg_lpips"):
         ckpt = get_ckpt_path(name, "vgg_lpips")
         self.load_state_dict(torch.load(ckpt, map_location=torch.device("cpu")), strict=False)
 
     def forward(self, real_x, fake_x):
-        features_real = self.vgg(self.scaling_layer(real_x))
-        features_fake = self.vgg(self.scaling_layer(fake_x))
-        diffs = {}
+        outs_real = self.vgg(self.scaling_layer(real_x))
+        outs_fake = self.vgg(self.scaling_layer(fake_x))
+        features_real, features_fake, diffs = {}, {}, {}
 
         for i in range(len(self.channels)):
-            diffs[i] = (norm_tensor(features_real[i]) - norm_tensor(features_fake[i])) ** 2
+            features_real[i], features_fake[i] = norm_tensor(outs_real[i]), norm_tensor(outs_fake[i])
+            diffs[i] = (features_real[i] - features_fake[i]) ** 2
 
-        return sum([spatial_average(self.lins[i].model(diffs[i])) for i in range(len(self.channels))])
+        return sum([spatial_average(self.linear_layers[i](diffs[i])) for i in range(len(self.channels))])
 
 
 class ScalingLayer(nn.Module):
@@ -89,34 +91,48 @@ class NetLinLayer(nn.Module):
             nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False)
         )
 
+    def forward(self, x):
+        return self.model(x)
+
 
 class VGG16(nn.Module):
     def __init__(self):
         super(VGG16, self).__init__()
-        vgg_pretrained_features = vgg16(weights=VGG16_Weights.DEFAULT).features
-        slices = [vgg_pretrained_features[i] for i in range(30)]
-        self.slice1 = nn.Sequential(*slices[0:4])
-        self.slice2 = nn.Sequential(*slices[4:9])
-        self.slice3 = nn.Sequential(*slices[9:16])
-        self.slice4 = nn.Sequential(*slices[16:23])
-        self.slice5 = nn.Sequential(*slices[23:30])
+        vgg_pretrained_features = vgg16(weights=VGG16_Weights.IMAGENET1K_V1).features
+        self.slice1 = nn.Sequential()
+        self.slice2 = nn.Sequential()
+        self.slice3 = nn.Sequential()
+        self.slice4 = nn.Sequential()
+        self.slice5 = nn.Sequential()
+        self.N_slices = 5
+
+        for x in range(4):
+            self.slice1.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(4, 9):
+            self.slice2.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(9, 16):
+            self.slice3.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(16, 23):
+            self.slice4.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(23, 30):
+            self.slice5.add_module(str(x), vgg_pretrained_features[x])
 
         for param in self.parameters():
             param.requires_grad = False
 
     def forward(self, x):
         h = self.slice1(x)
-        h_relu1 = h
+        h_relu1_2 = h
         h = self.slice2(h)
-        h_relu2 = h
+        h_relu2_2 = h
         h = self.slice3(h)
-        h_relu3 = h
+        h_relu3_3 = h
         h = self.slice4(h)
-        h_relu4 = h
+        h_relu4_3 = h
         h = self.slice5(h)
-        h_relu5 = h
+        h_relu5_3 = h
         vgg_outputs = namedtuple("VGGOutputs", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3', 'relu5_3'])
-        return vgg_outputs(h_relu1, h_relu2, h_relu3, h_relu4, h_relu5)
+        return vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3, h_relu5_3)
 
 
 def norm_tensor(x):
