@@ -14,16 +14,20 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #  ==============================================================================
+import torch
 import torch.nn as nn
 from .encoder import VQVAEEncoder
 from .decoder import VQVAEDecoder
-from .dictlearn import DictionaryLearningSimple, DictionaryLearningEMA
-class DLVAE(nn.Module):
+from .dictlearn import DictionaryLearningSimple
+from .discriminator import Discriminator
+from .utils import init_weights
+
+class DLGAN(nn.Module):
     '''DL-VAE model.'''
 
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, num_embeddings,
                  embedding_dim, commitment_cost, sparsity_level, decay, epsilon=1e-10):
-        super(DLVAE, self).__init__()
+        super(DLGAN, self).__init__()
 
         self._encoder = VQVAEEncoder(in_channels=in_channels,
                                 num_hiddens=num_hiddens,
@@ -54,6 +58,9 @@ class DLVAE(nn.Module):
                                 num_residual_layers=num_residual_layers,
                                 num_residual_hiddens=num_residual_hiddens)
 
+        self._discriminator = Discriminator()
+        self._discriminator.apply(init_weights)
+
     def forward(self, x):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
@@ -61,3 +68,25 @@ class DLVAE(nn.Module):
         x_recon = self._decoder(z_recon)
 
         return dlloss, x_recon, perplexity, z
+
+    def calculate_lambda(self, perceptual_loss, gan_loss, epsilon=1e-4, max_lambda=1e4, scale=0.8):
+        '''Calculate the lambda value for the loss function.
+        '''
+        ell = list(self._decoder.children())[-1] # the last layer of the decoder
+        ell_weight = ell.weight
+        perceptual_loss_gradients = torch.autograd.grad(perceptual_loss, ell_weight, retain_graph=True)[0]
+        gan_loss_gradients = torch.autograd.grad(gan_loss, ell_weight, retain_graph=True)[0]
+
+        lambda_factor = torch.norm(perceptual_loss_gradients) / torch.norm(gan_loss_gradients + epsilon)
+        lambda_factor = torch.clamp(lambda_factor, min=0.0, max=max_lambda).detach()
+
+        return scale * lambda_factor
+
+    @staticmethod
+    def adopt_weight(disc_factor, epoch, threshold, value=0.):
+        '''Adopt the weight of the discriminator.
+        '''
+        if epoch < threshold:
+            disc_factor = value
+
+        return disc_factor

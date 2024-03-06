@@ -25,7 +25,7 @@ from torchvision import utils as vutils
 from models.discriminator import Discriminator
 from models.lpips import LPIPS
 from models.vqgan import VQGAN
-from utils import init_weights, load_data
+from models.utils import init_weights, load_data
 
 
 class TrainVQGAN:

@@ -67,7 +67,7 @@ class CNNBlock(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, args, feature_dim_last=64, num_layers=3) -> None:
+    def __init__(self, feature_dim_last=64, num_layers=3) -> None:
         """constructor for the class.
 
         Args:
@@ -81,7 +81,7 @@ class Discriminator(nn.Module):
 
         layers = [
             nn.Conv2d(
-                in_channels=args.num_channels,
+                in_channels=3,
                 out_channels=feature_dims[0],
                 kernel_size=4,
                 stride=2,
