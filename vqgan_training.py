@@ -23,7 +23,7 @@ import torch.nn.functional as F
 from torchvision import utils as vutils
 
 from models.discriminator import Discriminator
-from lpips import LPIPS
+from models.lpips import LPIPS
 from models.vqgan import VQGAN
 from utils import init_weights, load_data
 
@@ -63,7 +63,7 @@ class TrainVQGAN:
     def train(self, args):
         train_dataset = load_data(args)
         steps_per_epoch = len(train_dataset)
-        perceptual_loss_criterion = LPIPS(net='vgg').to(args.device)
+        perceptual_loss_criterion = LPIPS().to(args.device)
         for epoch in range(args.epochs):
             with tqdm(range(len(train_dataset))) as pbar:
                 for i, imgs in zip(pbar, train_dataset):

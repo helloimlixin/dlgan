@@ -27,6 +27,7 @@ from torchvision import transforms
 from dataloaders.cifar10 import get_cifar10_train_loader
 from dataloaders.flowers import FlowersDataset
 from dataloaders.ffhq import FFHQDataset
+from tqdm import tqdm
 
 from models.dlvae import DLVAE
 from models.lpips import LPIPS
@@ -43,6 +44,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 4
 test_batch_size = 4
+num_epochs = 5
 num_training_updates = 200000
 
 num_hiddens = 128
@@ -76,7 +78,7 @@ epsilon = 1e-10 # a small number to avoid the numerical issues
 ffhq_dataset = FFHQDataset(root='./data/ffhq')
 train_loader = DataLoader(ffhq_dataset,
                           batch_size=train_batch_size,
-                          shuffle=False,
+                          shuffle=True,
                           pin_memory=True,
                           num_workers=0)
 
@@ -128,101 +130,100 @@ def train_dlvae():
 
     start = time.time()
 
-    for i in range(num_training_updates):
-        # sample the mini-batch
-        x = next(iter(train_loader))
-        x = x.to(device)
+    for epoch in range(num_epochs):
+        with tqdm(range(len(train_loader))) as pbar:
+            for i, x in zip(pbar, train_loader):
+                # sample the mini-batch
+                # x = next(iter(train_loader))
+                x = x.to(device)
 
-        # for cifar10 loader
-        # (x, _) = next(iter(train_loader))
-        # x = x.to(device)
+                # for cifar10 loader
+                # (x, _) = next(iter(train_loader))
+                # x = x.to(device)
 
-        # opt_vae.zero_grad() # clear the gradients
-        # opt_dl.zero_grad() # clear the gradients
-        optimizer.zero_grad()  # clear the gradients
+                # opt_vae.zero_grad() # clear the gradients
+                # opt_dl.zero_grad() # clear the gradients
+                optimizer.zero_grad()  # clear the gradients
 
-        # forward pass
-        # x_lr = F.interpolate(x, scale_factor=0.25, mode='bilinear', align_corners=False)
-        # x_hr = F.interpolate(x_lr, scale_factor=4, mode='bilinear', align_corners=False)
-        dl_loss, data_recon, perplexity, representation = dlvae(x)
-        perceptual_loss = perceptual_loss_criterion(data_recon, x).mean()
+                # forward pass
+                # x_lr = F.interpolate(x, scale_factor=0.25, mode='bilinear', align_corners=False)
+                # x_hr = F.interpolate(x_lr, scale_factor=4, mode='bilinear', align_corners=False)
+                dl_loss, data_recon, perplexity, representation = dlvae(x)
+                perceptual_loss = perceptual_loss_criterion(data_recon, x).mean()
 
-        recon_error = l2_loss_factor * loss_function(data_recon, x) + lpips_loss_factor * perceptual_loss
+                recon_error = l2_loss_factor * loss_function(data_recon, x) + lpips_loss_factor * perceptual_loss
 
-        loss = recon_error + dl_loss # total loss
+                loss = recon_error + dl_loss # total loss
 
-        loss.backward()
+                loss.backward()
 
-        optimizer.step() # update the parameters
-        scheduler.step()
+                optimizer.step() # update the parameters
+                scheduler.step()
 
-        # print training information
-        if (i + 1) % 100 == 0:
-            print('%d iterations ' % (i + 1), end='')
-            print('%.2f iterations/s ' % ((i + 1) / (time.time() - start)), end='')
-            print('ETA %.2f seconds' % ((num_training_updates - (i + 1)) / ((i + 1) / (time.time() - start))))
-            print('recon_error: %.3f | ' % np.mean(train_res_recon_error[-100:]), end='')
-            print('psnr: %.3f | ' % np.mean(train_res_recon_psnr[-100:]), end='')
-            print('lpips: %.3f | ' % np.mean(train_res_recon_lpips[-100:]), end='')
-            print('perplexity: %.3f' % np.mean(train_res_perplexity[-100:]))
-            print()
+                originals = x + 0.5 # add 0.5 to match the range of the original images [0, 1]
+                # low_res = x_lr + 0.5 # add 0.5 to match the range of the original images [0, 1]
+                # inputs = x_hr + 0.5 # add 0.5 to match the range of the original images [0, 1]
+                reconstructions = data_recon + 0.5 # add 0.5 to match the range of the original images [0, 1]
 
-        originals = x + 0.5 # add 0.5 to match the range of the original images [0, 1]
-        # low_res = x_lr + 0.5 # add 0.5 to match the range of the original images [0, 1]
-        # inputs = x_hr + 0.5 # add 0.5 to match the range of the original images [0, 1]
-        reconstructions = data_recon + 0.5 # add 0.5 to match the range of the original images [0, 1]
-
-        psnr = 10 * torch.log10(1 / loss_function(data_recon, x))
+                psnr = 10 * torch.log10(1 / loss_function(data_recon, x))
 
 
-        # save training information for TensorBoard
-        writer.add_scalar('Train Recon Error', recon_error.item(), i+1)
-        writer.add_scalar('Train PSNR', psnr.item(), i+1)
-        writer.add_scalar('Train LPIPS', perceptual_loss.item(), i+1)
-        writer.add_scalar('Train Dictionary Learning Loss', dl_loss.item(), i+1)
-        writer.add_scalar('Train Perplexity', perplexity.item(), i+1)
-        writer.add_scalar('Train Loss', loss.item(), i+1)
+                # save training information for TensorBoard
+                writer.add_scalar('Train Recon Error', recon_error.item(), i+1)
+                writer.add_scalar('Train PSNR', psnr.item(), i+1)
+                writer.add_scalar('Train LPIPS', perceptual_loss.item(), i+1)
+                writer.add_scalar('Train Dictionary Learning Loss', dl_loss.item(), i+1)
+                writer.add_scalar('Train Perplexity', perplexity.item(), i+1)
+                writer.add_scalar('Train Loss', loss.item(), i+1)
 
-        # save training information for plotting
-        train_res_recon_error.append(recon_error.item())
-        train_res_recon_psnr.append(psnr.item())
-        # train_res_recon_ssim.append(torch.mean(torch.Tensor([torch.Tensor(ssim(x[i], reconstructions[i], data_range=1, size_average=True)) for i in range(x.size(0))])).item())
-        train_res_recon_lpips.append(perceptual_loss.item())
-        train_res_perplexity.append(perplexity.item())
+                # save training information for plotting
+                train_res_recon_error.append(recon_error.item())
+                train_res_recon_psnr.append(psnr.item())
+                # train_res_recon_ssim.append(torch.mean(torch.Tensor([torch.Tensor(ssim(x[i], reconstructions[i], data_range=1, size_average=True)) for i in range(x.size(0))])).item())
+                train_res_recon_lpips.append(perceptual_loss.item())
+                train_res_perplexity.append(perplexity.item())
 
-        # save the reconstructed images
-        if (i + 1) % 1000 == 0:
-            # writer.add_images('Train Low Resolution Images', low_res, i+1)
-            writer.add_images('Train Target Images', originals, i+1)
-            # writer.add_images('Train Input Images', inputs, i+1)
-            writer.add_images('Train Reconstructed Images', reconstructions, i+1)
+                # save the reconstructed images
+                if (i + 1) % 100 == 0:
+                    # writer.add_images('Train Low Resolution Images', low_res, i+1)
+                    writer.add_images('Train Target Images', originals, i+1)
+                    # writer.add_images('Train Input Images', inputs, i+1)
+                    writer.add_images('Train Reconstructed Images', reconstructions, i+1)
 
-        # save the codebook
-        if (i + 1) % 1000 == 0:
-            writer.add_embedding(representation.view(train_batch_size, -1), label_img=originals, global_step=i+1)
+                # save the codebook
+                if (i + 1) % 100 == 0:
+                    writer.add_embedding(representation.view(train_batch_size, -1),
+                                         label_img=originals,
+                                         global_step=epoch * len(train_loader) + i + 1)
 
-        # save the gradient visualization
-        if (i + 1) % 1000 == 0:
-            for name, param in dlvae.named_parameters():
-                writer.add_histogram(name, param.clone().cpu().data.numpy(), i+1)
-                if param.grad is not None:
-                    writer.add_histogram(name+'/grad', param.grad.clone().cpu().data.numpy(), i+1)
+                # save the gradient visualization
+                if (i + 1) % 100 == 0:
+                    for name, param in dlvae.named_parameters():
+                        writer.add_histogram(name, param.clone().cpu().data.numpy(), i+1)
+                        if param.grad is not None:
+                            writer.add_histogram(name+'/grad', param.grad.clone().cpu().data.numpy(), i+1)
 
-        # save the training information
-        if (i + 1) % 1000 == 0:
-            np.save('train_res_recon_error.npy', train_res_recon_error)
-            np.save('train_res_perplexity.npy', train_res_perplexity)
+                # save the training information
+                if (i + 1) % 100 == 0:
+                    np.save('train_res_recon_error.npy', train_res_recon_error)
+                    np.save('train_res_perplexity.npy', train_res_perplexity)
 
-        # save the dlvae
-        if (i + 1) % 10000 == 0:
-            torch.save(dlvae.state_dict(), f'./checkpoints/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/iter_{(i + 1)}.pt')
+                # save the images
+                if (i + 1) % 100 == 0:
+                    torchvisionutils.save_image(originals, f'./results/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/target_{(i + 1)}.png')
+                    torchvisionutils.save_image(reconstructions, f'./results/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/reconstruction_{(i + 1)}.png')
 
-        # save the images
-        if (i + 1) % 1000 == 0:
-            # torchvisionutils.save_image(low_res, f'./dlvae_results/ffhq/sr/ema-{sparsity_level}/low_res_{(i + 1)}.png')
-            # torchvisionutils.save_image(inputs, f'./dlvae_results/ffhq/sr/ema-{sparsity_level}/input_{(i + 1)}.png')
-            torchvisionutils.save_image(originals, f'./results/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/target_{(i + 1)}.png')
-            torchvisionutils.save_image(reconstructions, f'./results/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/reconstruction_{(i + 1)}.png')
+                pbar.set_postfix(
+                    Recon_Error=np.round(recon_error.cpu().detach().numpy().item(), 3),
+                    PSNR=np.round(psnr.cpu().detach().numpy().item(), 3),
+                    Perceptual_Loss=np.round(perceptual_loss.cpu().detach().numpy().item(), 3),
+                    DL_Loss=np.round(dl_loss.cpu().detach().numpy().item(), 3),
+                    Perplexity=np.round(perplexity.cpu().detach().numpy().item(), 3),
+                    Loss=np.round(loss.cpu().detach().numpy().item(), 3)
+                )
+                pbar.update(0)
+            torch.save(dlvae.state_dict(),
+                       f'./checkpoints/dlvae/vanilla/sparsity-{sparsity_level}/ffhq/epoch_{(epoch + 1)}.pt')
 
     writer.close()
 

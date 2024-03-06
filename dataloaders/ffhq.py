@@ -17,17 +17,14 @@
 import os
 
 import numpy as np
-import torch
 from PIL import Image
-from torchvision.io import read_image
 from torch.utils.data import Dataset
 import albumentations
-from albumentations.pytorch import ToTensorV2
 
 class FFHQDataset(Dataset):
     '''Get training data_paths from the FFHQ dataset.'''
 
-    def __init__(self, root, size=512, crop_size=32, transform=None):
+    def __init__(self, root, size=512, crop_size=512, transform=None):
         self.root = root
         self.size = size
         self.crop_size = crop_size
