@@ -51,7 +51,7 @@ num_embeddings = 32
 
 commitment_cost = 0.25
 
-decay = 0.99
+decay = 0.
 
 learning_rate = 1e-4
 

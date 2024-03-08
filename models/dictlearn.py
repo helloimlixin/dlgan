@@ -33,14 +33,13 @@ class DictionaryLearningSimple(nn.Module):
     sparsity_level: sparsity level L.
   """
 
-    def __init__(self, dim, num_atoms, commitment_cost, sparsity_level, epsilon=1e-10) -> None:
+    def __init__(self, dim, num_atoms, commitment_cost, epsilon=1e-10) -> None:
         super(DictionaryLearningSimple, self).__init__()
         self.dim = dim
         self.num_atoms = num_atoms
         self.dictionary = nn.Embedding(self.num_atoms, self.dim)
 
         self.commitment_cost = commitment_cost
-        self.sparsity_level = sparsity_level
 
         self.representation = self.representation_builder()
 
@@ -53,7 +52,7 @@ class DictionaryLearningSimple(nn.Module):
         return nn.Sequential(*layers)
 
 
-    def forward(self, z_e):
+    def loss(self, z_e, representation):
         """Forward pass.
 
     Args:
@@ -66,23 +65,9 @@ class DictionaryLearningSimple(nn.Module):
         ze_flattened = z_e.view(-1, self.dim)  # data dimension: N z_e D
 
         representation = self.representation(ze_flattened)  # representation matrix R with dimension N z_e K
-
-        # sparsity representation
-        # compute the distances between the input vectors and the _embedding vectors
-        # distances: BHW z_e _num_embeddings
-        distances = torch.sum(ze_flattened ** 2, dim=1, keepdim=True) + torch.sum(
-            self.dictionary.weight ** 2, dim=1) - 2 * torch.matmul(ze_flattened, self.dictionary.weight.t())
-
-        min_dists, encoding_indices = distances.topk(self.sparsity_level, dim=1, largest=False)
-
-        encodings = torch.zeros(encoding_indices.shape[0], self.num_atoms, device=z_e.device)
-        encodings.scatter_(1, encoding_indices, 1)
-
-        # representation_sparse = encodings.mul(representation).to_sparse_csr() # sparsity representation
-        representation_sparse = encodings * representation  # sparsity representation
         
         # compute the reconstruction from the representation
-        z_dl = torch.matmul(representation_sparse, self.dictionary.weight)  # reconstruction: B z_e D
+        z_dl = torch.matmul(representation, self.dictionary.weight)  # reconstruction: B z_e D
         z_dl = z_dl.view(ze_shape).contiguous()
 
         # compute the commitment loss
@@ -97,7 +82,7 @@ class DictionaryLearningSimple(nn.Module):
 
         # average pooling over the spatial dimensions
         # avg_probs: B z_e _num_embeddings
-        avg_probs = torch.mean(encodings, dim=0)
+        avg_probs = torch.mean(representation, dim=0)
         avg_probs = avg_probs / torch.sum(avg_probs)  # normalize the representation
 
         # codebook perplexity / usage: 1
@@ -105,6 +90,21 @@ class DictionaryLearningSimple(nn.Module):
 
         # return representation, reconstruction, perplexity, regularization
         return recon_loss, z_dl.permute(0, 3, 1, 2).contiguous(), perplexity, representation
+
+    def forward(self, z_e):
+        """Forward pass.
+
+        Args:
+            z_e: input data, for image data, the dimension is:
+                batch_size z_e num_channels z_e height z_e width
+            """
+        z_e = z_e.permute(0, 2, 3, 1).contiguous()
+        ze_shape = z_e.shape
+
+        ze_flattened = z_e.view(-1, self.dim)
+        representation = self.representation(ze_flattened)
+
+        return representation
 
 
 class DictionaryLearningEMA(nn.Module):

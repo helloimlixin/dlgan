@@ -43,7 +43,6 @@ class DLGAN(nn.Module):
         self._dl_bottleneck = DictionaryLearningSimple(dim=embedding_dim,
                                                        num_atoms=num_embeddings,
                                                        commitment_cost=commitment_cost,
-                                                       sparsity_level=sparsity_level,
                                                        epsilon=epsilon)
 
         # self._dl_bottleneck = DictionaryLearningEMA(dim=embedding_dim,
@@ -64,12 +63,13 @@ class DLGAN(nn.Module):
     def forward(self, x):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
-        dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z)
+        representation = self._dl_bottleneck(z)
+        dlloss, z_recon, perplexity, representation = self._dl_bottleneck.loss(z, representation)
         x_recon = self._decoder(z_recon)
 
         return dlloss, x_recon, perplexity, z
 
-    def calculate_lambda(self, perceptual_loss, gan_loss, epsilon=1e-4, max_lambda=1e4, scale=0.8):
+    def calculate_lambda(self, perceptual_loss, gan_loss, epsilon=1e-6, max_lambda=1e4, scale=0.8):
         '''Calculate the lambda value for the loss function.
         '''
         ell = list(self._decoder.children())[-1] # the last layer of the decoder

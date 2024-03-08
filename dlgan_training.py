@@ -47,8 +47,8 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
 train_batch_size = 4
-test_batch_size = 8
-num_epochs = 20
+test_batch_size = 4
+num_epochs = 10
 
 num_hiddens = 128
 num_residual_hiddens = 4
@@ -75,7 +75,7 @@ sparsity_level = 5 # number of atoms selected
 epsilon = 1e-10 # a small number to avoid the numerical issues
 
 discriminator_factor = 0.2
-disc_start = 100000
+disc_start = 0
 
 validation_interval = 1000
 
@@ -94,7 +94,7 @@ ffhq_dataset_train, ffhq_dataset_val, ffhq_dataset_test = torch.utils.data.rando
 train_loader = DataLoader(ffhq_dataset_train,
                           batch_size=train_batch_size,
                           shuffle=True,
-                          pin_memory=True,
+                          pin_memory=False,
                           num_workers=0)
 
 val_loader = DataLoader(ffhq_dataset_val,
@@ -121,7 +121,7 @@ dlgan = DLGAN(in_channels=3,
               decay=decay,
               epsilon=epsilon).to(device)
 
-# dlgan-vanilla.load_state_dict(torch.load(f'./checkpoints/dlgan-vanilla/vanilla/sparsity-{sparsity_level}/ffhq/iter_200000.pt'))
+dlgan.load_state_dict(torch.load(f'./checkpoints/dlgan-vanilla/sparsity-{sparsity_level}/epoch_10.pt'))
 # dlgan-vanilla.eval()
 
 # dlvae_optimizer
@@ -132,7 +132,7 @@ opt_vae = torch.optim.Adam(list(dlgan._encoder.parameters()) +
                            list(dlgan._decoder.parameters()) +
                            list(dlgan._dl_bottleneck.parameters()) +
                            list(dlgan._pre_vq_conv.parameters()), lr=learning_rate, amsgrad=False)
-opt_disc = torch.optim.Adam(dlgan._discriminator.parameters(), lr=1e-8, amsgrad=False)
+opt_disc = torch.optim.Adam(dlgan._discriminator.parameters(), lr=1e-5, amsgrad=False)
 
 scheduler = torch.optim.lr_scheduler.MultiStepLR(opt_vae, milestones=lr_schedule, gamma=0.1)
 
@@ -275,10 +275,10 @@ def train_dlvae():
                     np.save('train_res_recon_error.npy', train_res_recon_error)
                     np.save('train_res_perplexity.npy', train_res_perplexity)
 
-                # # save the images
-                # if global_step % 100 == 0:
-                #     torchvisionutils.save_image(originals, f'./results/dlgan-vanilla/vanilla/sparsity-{sparsity_level}/ffhq/target_{global_step}.png')
-                #     torchvisionutils.save_image(reconstructions, f'./results/dlgan-vanilla/vanilla/sparsity-{sparsity_level}/ffhq/reconstruction_{global_step}.png')
+                # save the images
+                if global_step % 100 == 0:
+                    torchvisionutils.save_image(originals, f'./results/dlvae-vanilla/sparsity-{sparsity_level}/target_{global_step}.png')
+                    torchvisionutils.save_image(reconstructions, f'./results/dlvae-vanilla/sparsity-{sparsity_level}/reconstruction_{global_step}.png')
 
                 # perform the validation
                 if global_step % validation_interval == 0:
@@ -348,19 +348,20 @@ def train_dlvae():
                     dlgan.train()
 
                 pbar.set_postfix(
-                    Recon_Error=np.round(recon_error.cpu().detach().numpy().item(), 3),
-                    # PSNR=np.round(psnr.cpu().detach().numpy().item(), 3),
-                    # Perceptual_Loss=np.round(perceptual_loss.cpu().detach().numpy().item(), 3),
+                    # Recon_Error=np.round(recon_error.cpu().detach().numpy().item(), 3),
+                    PSNR=np.round(psnr.cpu().detach().numpy().item(), 3),
+                    Perceptual_Loss=np.round(perceptual_loss.cpu().detach().numpy().item(), 3),
                     # SSIM=np.round(ssim_val.item(), 3),
-                    # FLIP=np.round(flip.item(), 3),
+                    FLIP=np.round(flip.item(), 3),
                     DL_Loss=np.round(dl_loss.cpu().detach().numpy().item(), 3),
                     Perplexity=np.round(perplexity.cpu().detach().numpy().item(), 3),
-                    Loss=np.round(loss.cpu().detach().numpy().item(), 3),
+                    # Loss=np.round(loss.cpu().detach().numpy().item(), 3),
                     GAN_Loss=np.round(gan_loss.cpu().detach().numpy().item(), 3),
                     global_step=global_step
                 )
                 pbar.update(0)
-            torch.save(dlgan.state_dict(),
+            torch.save({ "model": dlgan.state_dict(),
+                         "global_step": global_step},
                        f'./checkpoints/dlgan-vanilla/sparsity-{sparsity_level}/epoch_{(epoch + 1)}.pt')
 
     writer.close()
