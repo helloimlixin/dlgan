@@ -76,7 +76,7 @@ class DictionaryLearningSimple(nn.Module):
         # compute the z_dl latent loss
         e2z_loss = F.mse_loss(z_dl, z_e.detach())
 
-        recon_loss = commitment_loss + e2z_loss
+        recon_loss = commitment_loss + e2z_loss + self.commitment_cost * torch.abs(representation).mean()
 
         z_dl = z_e + (z_dl - z_e).detach() # straight-through gradient
 

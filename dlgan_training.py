@@ -48,7 +48,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 4
 test_batch_size = 4
-num_epochs = 10
+num_epochs = 20
 
 num_hiddens = 128
 num_residual_hiddens = 4
@@ -75,7 +75,7 @@ sparsity_level = 5 # number of atoms selected
 epsilon = 1e-10 # a small number to avoid the numerical issues
 
 discriminator_factor = 0.2
-disc_start = 0
+disc_start = 100000
 
 validation_interval = 1000
 
@@ -84,6 +84,8 @@ validation_interval = 1000
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
 ffhq_dataset = FFHQDataset(root='./data/ffhq')
+
+load_pretrained = False
 
 # train, val, test split
 train_size = int(0.999 * len(ffhq_dataset))
@@ -121,7 +123,13 @@ dlgan = DLGAN(in_channels=3,
               decay=decay,
               epsilon=epsilon).to(device)
 
-dlgan.load_state_dict(torch.load(f'./checkpoints/dlgan-vanilla/sparsity-{sparsity_level}/epoch_10.pt'))
+global global_step
+global_step = 0
+if load_pretrained:
+    checkpoint = torch.load(f'./checkpoints/dlgan-vanilla/epoch_10.pt')
+    dlgan.load_state_dict(checkpoint['model'])
+    global_step = checkpoint['global_step']
+# dlgan.load_state_dict(torch.load(f'./checkpoints/dlgan-vanilla/sparsity-{sparsity_level}/epoch_10.pt'))
 # dlgan-vanilla.eval()
 
 # dlvae_optimizer
@@ -141,7 +149,7 @@ def loss_function(recon_x, x):
     recon_error = F.mse_loss(recon_x, x)
     return recon_error
 
-def train_dlvae():
+def train_dlvae(global_step=0):
     '''Train the vqvae.'''
     train_res_recon_error = []
     train_res_recon_psnr = []
@@ -153,8 +161,8 @@ def train_dlvae():
     perceptual_loss_criterion = LPIPS().to(device)
     flip_loss_criterion = LDRFLIPLoss().to(device)
 
-    dlgan.train() # set the vqvae to training mode
-    dirpath = Path(f'./runs/dlvae/vanilla/sparsity-{sparsity_level}/ffhq')
+    dlgan.train() # set the dlgan to training mode
+    dirpath = Path(f'./runs/dlgan-vanilla')
     if dirpath.exists() and dirpath.is_dir():
         shutil.rmtree(dirpath)
 
@@ -258,27 +266,27 @@ def train_dlvae():
                 #     writer.add_images('Train Reconstructed Images', reconstructions, global_step)
 
                 # save the codebook
-                if global_step % 100 == 0:
+                if global_step % 1000 == 0:
                     writer.add_embedding(representation.view(train_batch_size, -1),
                                          label_img=originals,
                                          global_step=global_step)
 
                 # save the gradient visualization
-                if global_step % 100 == 0:
+                if global_step % 1000 == 0:
                     for name, param in dlgan.named_parameters():
                         writer.add_histogram(name, param.clone().cpu().data.numpy(), global_step)
                         if param.grad is not None:
                             writer.add_histogram(name+'/grad', param.grad.clone().cpu().data.numpy(), global_step)
 
                 # save the training information
-                if global_step % 100 == 0:
+                if global_step % 10000 == 0:
                     np.save('train_res_recon_error.npy', train_res_recon_error)
                     np.save('train_res_perplexity.npy', train_res_perplexity)
 
                 # save the images
-                if global_step % 100 == 0:
-                    torchvisionutils.save_image(originals, f'./results/dlvae-vanilla/sparsity-{sparsity_level}/target_{global_step}.png')
-                    torchvisionutils.save_image(reconstructions, f'./results/dlvae-vanilla/sparsity-{sparsity_level}/reconstruction_{global_step}.png')
+                if global_step % 1000 == 0:
+                    torchvisionutils.save_image(originals, f'./results/dlgan-vanilla/target_{global_step}.png')
+                    torchvisionutils.save_image(reconstructions, f'./results/dlgan-vanilla/reconstruction_{global_step}.png')
 
                 # perform the validation
                 if global_step % validation_interval == 0:
@@ -342,8 +350,8 @@ def train_dlvae():
                         writer.add_scalar('Val Perplexity', perplexity_val.item(), global_step)
 
                         # save the images
-                        torchvisionutils.save_image(originals_val, f'./results/dlgan-vanilla/sparsity-{sparsity_level}/val_target_{global_step}.png')
-                        torchvisionutils.save_image(reconstructions_val, f'./results/dlgan-vanilla/sparsity-{sparsity_level}/val_reconstruction_{global_step}.png')
+                        torchvisionutils.save_image(originals_val, f'./results/dlgan-vanilla/val_target_{global_step}.png')
+                        torchvisionutils.save_image(reconstructions_val, f'./results/dlgan-vanilla/val_reconstruction_{global_step}.png')
 
                     dlgan.train()
 
@@ -361,15 +369,15 @@ def train_dlvae():
                 )
                 pbar.update(0)
             torch.save({ "model": dlgan.state_dict(),
-                         "global_step": global_step},
-                       f'./checkpoints/dlgan-vanilla/sparsity-{sparsity_level}/epoch_{(epoch + 1)}.pt')
+                         "global_step": global_step},f'./checkpoints/dlgan-vanilla/epoch_{(epoch + 1)}.pt')
 
     writer.close()
 
 
 if __name__ == '__main__':
     start = time.time()
-    train_dlvae()
+    print(f'Training the DL-GAN from global step {global_step}...')
+    train_dlvae(global_step=global_step)
     end = time.time()
     print('Training time: %f seconds.' % (end-start))
 
