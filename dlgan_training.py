@@ -48,7 +48,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 4
 test_batch_size = 4
-num_epochs = 20
+num_epochs = 2
 
 num_hiddens = 128
 num_residual_hiddens = 4
@@ -74,8 +74,8 @@ sparsity_level = 5 # number of atoms selected
 
 epsilon = 1e-10 # a small number to avoid the numerical issues
 
-discriminator_factor = 0.2
-disc_start = 100000
+discriminator_factor = 0.01
+disc_start = 0
 
 validation_interval = 1000
 
@@ -85,7 +85,7 @@ validation_interval = 1000
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
 ffhq_dataset = FFHQDataset(root='./data/ffhq')
 
-load_pretrained = False
+load_pretrained = True
 
 # train, val, test split
 train_size = int(0.999 * len(ffhq_dataset))
@@ -126,7 +126,7 @@ dlgan = DLGAN(in_channels=3,
 global global_step
 global_step = 0
 if load_pretrained:
-    checkpoint = torch.load(f'./checkpoints/dlgan-vanilla/epoch_10.pt')
+    checkpoint = torch.load(f'./checkpoints/dlgan-vanilla/epoch_20.pt')
     dlgan.load_state_dict(checkpoint['model'])
     global_step = checkpoint['global_step']
 # dlgan.load_state_dict(torch.load(f'./checkpoints/dlgan-vanilla/sparsity-{sparsity_level}/epoch_10.pt'))
@@ -140,7 +140,7 @@ opt_vae = torch.optim.Adam(list(dlgan._encoder.parameters()) +
                            list(dlgan._decoder.parameters()) +
                            list(dlgan._dl_bottleneck.parameters()) +
                            list(dlgan._pre_vq_conv.parameters()), lr=learning_rate, amsgrad=False)
-opt_disc = torch.optim.Adam(dlgan._discriminator.parameters(), lr=1e-5, amsgrad=False)
+opt_disc = torch.optim.Adam(dlgan._discriminator.parameters(), lr=1e-4, amsgrad=False)
 
 scheduler = torch.optim.lr_scheduler.MultiStepLR(opt_vae, milestones=lr_schedule, gamma=0.1)
 
@@ -259,11 +259,11 @@ def train_dlvae(global_step=0):
                 train_res_perplexity.append(perplexity.item())
 
                 # save the reconstructed images
-                # if global_step % 100 == 0:
-                #     # writer.add_images('Train Low Resolution Images', low_res, i+1)
-                #     writer.add_images('Train Target Images', originals, global_step)
-                #     # writer.add_images('Train Input Images', inputs, i+1)
-                #     writer.add_images('Train Reconstructed Images', reconstructions, global_step)
+                if global_step % 1000 == 0:
+                    # writer.add_images('Train Low Resolution Images', low_res, i+1)
+                    writer.add_images('Train Target Images', originals, global_step)
+                    # writer.add_images('Train Input Images', inputs, i+1)
+                    writer.add_images('Train Reconstructed Images', reconstructions, global_step)
 
                 # save the codebook
                 if global_step % 1000 == 0:
@@ -369,7 +369,7 @@ def train_dlvae(global_step=0):
                 )
                 pbar.update(0)
             torch.save({ "model": dlgan.state_dict(),
-                         "global_step": global_step},f'./checkpoints/dlgan-vanilla/epoch_{(epoch + 1)}.pt')
+                         "global_step": global_step},f'./checkpoints/dlgan-vanilla/epoch_{(epoch + 8)}.pt')
 
     writer.close()
 
