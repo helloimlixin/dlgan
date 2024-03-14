@@ -1,5 +1,5 @@
 #  ==============================================================================
-#  Description: Helper functions for the model.
+#  Description: Helper functions for the vqvae.
 #  Copyright (C) 2024 Xin Li
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,123 +14,349 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #  ==============================================================================
-import os
 import argparse
-from tqdm import tqdm
-import numpy as np
+
 import torch
 import torch.nn.functional as F
-from torchvision import utils as vutils
-
-from models.discriminator import Discriminator
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from torchvision import utils as torchvisionutils
+from torchvision.datasets import ImageFolder
+from tqdm import tqdm
+from dataloaders.flowers import FlowersDataset
+from dataloaders.ffhq import FFHQDataset
+from flip.pytorch.flip_loss import LDRFLIPLoss
 from models.lpips import LPIPS
+from skimage.metrics import structural_similarity as ssim
 from models.vqgan import VQGAN
-from models.utils import init_weights, load_data
+import numpy as np
+import time
+import os
+from pathlib import Path
+import shutil
 
+# fix the bug of "OMP: Error #15: Initializing libiomp5.dylib, but found libiomp5.dylib already initialized."
+os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
-class TrainVQGAN:
-    def __init__(self, args):
-        self.vqgan = VQGAN(args).to(device=args.device)
-        self.vqgan.load_checkpoint('vqgan_ckpts/vqgan_epoch_0.pt')
-        self.discriminator = Discriminator(args).to(device=args.device)
-        self.discriminator.apply(init_weights)
-        self.opt_vq, self.opt_disc = self.configure_optimizers(args)
+# hyperparameters
+train_batch_size = 4
+test_batch_size = 32
+num_epochs = 20
 
-        self.prepare_training()
+num_hiddens = 128
+num_residual_hiddens = 4
+num_residual_layers = 2
 
-        self.train(args)
+embedding_dim = 32
+num_embeddings = 128
 
-    def configure_optimizers(self, args):
-        lr = args.learning_rate
-        opt_vq = torch.optim.Adam(
-            list(self.vqgan._encoder.parameters()) +
-            list(self.vqgan._decoder.parameters()) +
-            list(self.vqgan._codebook.parameters()) +
-            list(self.vqgan._prequant_conv.parameters()) +
-            list(self.vqgan._postquant_conv.parameters()),
-            lr=lr, eps=1e-08, betas=(args.beta1, args.beta2)
-        )
-        opt_disc = torch.optim.Adam(self.discriminator.parameters(),
-                                    lr=lr, eps=1e-08, betas=(args.beta1, args.beta2))
+commitment_cost = 0.25
 
-        return opt_vq, opt_disc
+decay = 0.99
 
-    @staticmethod
-    def prepare_training():
-        os.makedirs("vqgan_results", exist_ok=True)
-        os.makedirs("vqgan_ckpts", exist_ok=True)
+learning_rate = 1e-4
 
-    def train(self, args):
-        train_dataset = load_data(args)
-        steps_per_epoch = len(train_dataset)
-        perceptual_loss_criterion = LPIPS().to(args.device)
-        for epoch in range(args.epochs):
-            with tqdm(range(len(train_dataset))) as pbar:
-                for i, imgs in zip(pbar, train_dataset):
-                    imgs = imgs.to(device=args.device)
-                    decoded_images, _, q_loss = self.vqgan(imgs)
+lr_schedule = [200000]
 
-                    disc_real = self.discriminator(imgs)
-                    disc_fake = self.discriminator(decoded_images)
+epsilon = 1e-10 # a small number to avoid the numerical issues
 
-                    disc_factor = self.vqgan.adopt_weight(args.disc_factor, epoch*steps_per_epoch+i, threshold=args.disc_start)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-                    rec_loss = torch.abs(imgs - decoded_images)
-                    perceptual_rec_loss = args.perceptual_loss_factor * perceptual_loss_criterion(imgs, decoded_images) + args.rec_loss_factor * rec_loss
-                    perceptual_rec_loss = torch.mean(perceptual_rec_loss)
-                    g_loss = -torch.mean(disc_fake)
+l2_loss_factor = 0.5
+lpips_loss_factor = 1 - l2_loss_factor
 
-                    λ = self.vqgan.calculate_lambda(perceptual_rec_loss, g_loss)
-                    vq_loss = perceptual_rec_loss + q_loss + disc_factor * λ * g_loss
+discriminator_factor = 0.01
+disc_start = 100000
 
-                    d_loss_real = torch.mean(F.relu(1. - disc_real))
-                    d_loss_fake = torch.mean(F.relu(1. + disc_fake))
-                    gan_loss = disc_factor * 0.5*(d_loss_real + d_loss_fake)
+validation_interval = 1000
 
-                    self.opt_vq.zero_grad()
-                    vq_loss.backward(retain_graph=True)
+load_pretrained = False
 
-                    self.opt_disc.zero_grad()
-                    gan_loss.backward()
+# data_paths loaders
+# train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
 
-                    self.opt_vq.step()
-                    self.opt_disc.step()
+# flowers_dataset = FlowersDataset(root='./data/flowers')
+# train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
+# test_loader = get_cifar10_test_loader(batch_size=test_batch_size)()
 
-                    if i % 100 == 0:
-                        with torch.no_grad():
-                            real_fake_images = torch.cat((imgs[:4], decoded_images.add(1).mul(0.5)[:4]))
-                            vutils.save_image(real_fake_images, os.path.join("vqgan_results", f"{epoch}_{i}.jpg"), nrow=4)
+ffhq_dataset = FFHQDataset(root='./data/ffhq')
 
-                    pbar.set_postfix(
-                        Perceptual_Loss=np.round(perceptual_rec_loss.cpu().detach().numpy().item(), 3),
-                        VQ_Loss=np.round(vq_loss.cpu().detach().numpy().item(), 5),
-                        GAN_Loss=np.round(gan_loss.cpu().detach().numpy().item(), 3)
-                    )
-                    pbar.update(0)
-                torch.save(self.vqgan.state_dict(), os.path.join("vqgan_ckpts", f"vqgan_epoch_{epoch}.pt"))
+# train, val, test split
+train_size = int(0.999 * len(ffhq_dataset))
+val_size = int(0.0008 * len(ffhq_dataset))
+test_size = len(ffhq_dataset) - train_size - val_size
+ffhq_dataset_train, ffhq_dataset_val, ffhq_dataset_test = torch.utils.data.random_split(ffhq_dataset, [train_size, val_size, test_size])
+
+train_loader = DataLoader(ffhq_dataset_train,
+                          batch_size=train_batch_size,
+                          shuffle=True,
+                          pin_memory=False,
+                          num_workers=0)
+
+val_loader = DataLoader(ffhq_dataset_val,
+                        batch_size=test_batch_size,
+                        shuffle=False,
+                        pin_memory=True,
+                        num_workers=0)
+
+test_loader = DataLoader(ffhq_dataset_test,
+                            batch_size=test_batch_size,
+                            shuffle=False,
+                            pin_memory=True,
+                            num_workers=0)
+
+# vqgan
+vqgan = VQGAN(in_channels=3,
+              num_hiddens=num_hiddens,
+              num_residual_layers=num_residual_layers,
+              num_residual_hiddens=num_residual_hiddens,
+              num_embeddings=num_embeddings,
+              embedding_dim=embedding_dim,
+              commitment_cost=commitment_cost,
+              decay=decay).to(device)
+
+global global_step
+global_step = 0
+if load_pretrained:
+    checkpoint = torch.load(f'./checkpoints/vqgan-ema/epoch_latest.pt')
+    vqgan.load_state_dict(checkpoint['model'])
+    global_step = checkpoint['global_step']
+
+# vqgam_optimizer
+opt_vae = torch.optim.Adam(list(vqgan._encoder.parameters()) +
+                           list(vqgan._decoder.parameters()) +
+                           list(vqgan._vq_bottleneck.parameters()) +
+                           list(vqgan._pre_vq_conv.parameters()), lr=learning_rate, amsgrad=False)
+opt_disc = torch.optim.Adam(vqgan._discriminator.parameters(), lr=1e-4, amsgrad=False)
+
+scheduler = torch.optim.lr_scheduler.MultiStepLR(opt_vae, milestones=lr_schedule, gamma=0.1)
+
+# loss function
+def loss_function(recon_x, x):
+    recon_error = F.mse_loss(recon_x, x)
+    return recon_error
+
+def train_vqgan(global_step=0):
+    '''Train the vqgan.'''
+    train_res_recon_error = []
+    train_res_recon_psnr = []
+    train_res_recon_ssim = []
+    train_res_recon_flip = []
+    train_res_recon_lpips = []
+    train_res_perplexity = []
+
+    perceptual_loss_criterion = LPIPS().to(device)
+    flip_loss_criterion = LDRFLIPLoss().to(device)
+
+    vqgan.train() # set the vqgan to training mode
+
+    # set up tensorboard directory
+    dirpath = Path(f'./runs/vqgan-ema')
+    if dirpath.exists() and dirpath.is_dir():
+        shutil.rmtree(dirpath)
+
+    writer = SummaryWriter(dirpath) # create a writer object for TensorBoard
+
+    for epoch in range(num_epochs):
+        with tqdm(range(len(train_loader)), colour='green') as pbar:
+            for i, x in zip(pbar, train_loader):
+                global_step = epoch * len(train_loader) + i + 1
+
+                # sample the mini-batch
+                x = x.to(device)
+
+                # forward pass
+                vq_loss, x_recon, perplexity, quantized = vqgan(x)
+                perceptual_loss = perceptual_loss_criterion(x_recon, x).mean()
+
+                recon_error = l2_loss_factor * loss_function(x_recon, x) + lpips_loss_factor * perceptual_loss
+
+                flip_loss = flip_loss_criterion(x_recon, x)
+
+                disc_real = vqgan._discriminator(x)
+                disc_fake = vqgan._discriminator(x_recon)
+
+                g_loss = -torch.mean(disc_fake)
+
+                disc_factor = vqgan.adopt_weight(discriminator_factor, global_step, threshold=disc_start)
+
+                d_loss_real = torch.mean(F.relu(1. - disc_real))
+                d_loss_fake = torch.mean(F.relu(1. + disc_fake))
+                gan_loss = disc_factor * 0.5 * (d_loss_real + d_loss_fake)
+
+                lambda_factor = vqgan.calculate_lambda(perceptual_loss, gan_loss)
+
+                loss = recon_error + vq_loss + flip_loss + disc_factor * lambda_factor * g_loss # total loss
+
+                opt_vae.zero_grad()  # clear the gradients
+                loss.backward(retain_graph=True)  # compute the gradients
+
+                opt_disc.zero_grad()  # clear the gradients
+                gan_loss.backward()  # compute the gradients
+
+                opt_vae.step()  # update the parameters
+                opt_disc.step()  # update the parameters
+                scheduler.step()
+
+                originals = x + 0.5  # add 0.5 to match the range of the original images [0, 1]
+                # low_res = x_lr + 0.5 # add 0.5 to match the range of the original images [0, 1]
+                # inputs = x_hr + 0.5 # add 0.5 to match the range of the original images [0, 1]
+                reconstructions = x_recon + 0.5  # add 0.5 to match the range of the original images [0, 1]
+
+                psnr = 10 * torch.log10(1 / loss_function(x_recon, x))
+
+                x_np = x.cpu().detach().numpy()
+                reconstructions_np = reconstructions.cpu().detach().numpy()
+
+                ssim_val = torch.mean(torch.Tensor([ssim(x_np[i], reconstructions_np[i],
+                                                         data_range=1,
+                                                         size_average=True,
+                                                         channel_axis=0) for i in range(x_np.shape[0])]))
+
+                # save training information for TensorBoard
+                writer.add_scalar('Train Recon Error', recon_error.item(), global_step)
+                writer.add_scalar('Train PSNR', psnr.item(), global_step)
+                writer.add_scalar('Train LPIPS', perceptual_loss.item(), global_step)
+                writer.add_scalar('Train SSIM', ssim_val.item(), global_step)
+                writer.add_scalar('Train FLIP', flip_loss.item(), global_step)
+                writer.add_scalar('Train Dictionary Learning Loss', vq_loss.item(), global_step)
+                writer.add_scalar('Train Perplexity', perplexity.item(), global_step)
+                writer.add_scalar('Train Loss', loss.item(), global_step)
+                writer.add_scalar('Train GAN Loss', gan_loss.item(), global_step)
+
+                # save training information for plotting
+                train_res_recon_error.append(recon_error.item())
+                train_res_recon_psnr.append(psnr.item())
+                train_res_recon_ssim.append(ssim_val.item())
+                train_res_recon_lpips.append(perceptual_loss.item())
+                train_res_recon_flip.append(flip_loss.item())
+                train_res_perplexity.append(perplexity.item())
+
+                # save the reconstructed images
+                if global_step % 1000 == 0:
+                    # writer.add_images('Train Low Resolution Images', low_res, i+1)
+                    writer.add_images('Train Target Images', originals, global_step)
+                    # writer.add_images('Train Input Images', inputs, i+1)
+                    writer.add_images('Train Reconstructed Images', reconstructions, global_step)
+
+                # save the codebook
+                if global_step % 1000 == 0:
+                    writer.add_embedding(quantized.view(train_batch_size, -1),
+                                         label_img=originals,
+                                         global_step=global_step)
+
+                # save the gradient visualization
+                if global_step % 1000 == 0:
+                    for name, param in vqgan.named_parameters():
+                        writer.add_histogram(name, param.clone().cpu().data.numpy(), global_step)
+                        if param.grad is not None:
+                            writer.add_histogram(name + '/grad', param.grad.clone().cpu().data.numpy(), global_step)
+
+                # save the training information
+                if global_step % 10000 == 0:
+                    np.save('train_res_recon_error.npy', train_res_recon_error)
+                    np.save('train_res_perplexity.npy', train_res_perplexity)
+
+                # save the images
+                if global_step % 1000 == 0:
+                    torchvisionutils.save_image(originals, f'./results/vqgan-ema/target_{global_step}.png')
+                    torchvisionutils.save_image(reconstructions,
+                                                f'./results/vqgan-ema/reconstruction_{global_step}.png')
+
+                # perform the validation
+                if global_step % validation_interval == 0:
+                    vqgan.eval()
+                    with torch.no_grad():
+                        val_res_recon_error = []
+                        val_res_recon_psnr = []
+                        val_res_recon_ssim = []
+                        val_res_recon_flip = []
+                        val_res_recon_lpips = []
+                        val_res_perplexity = []
+
+                        x_val = next(iter(val_loader))
+                        x_val = x_val.to(device)
+
+                        # forward pass
+                        dl_loss_val, data_recon_val, perplexity_val, quantized_val = vqgan(x_val)
+                        perceptual_loss_val = perceptual_loss_criterion(data_recon_val, x_val).mean()
+
+                        recon_error_val = l2_loss_factor * loss_function(data_recon_val,
+                                                                         x_val) + lpips_loss_factor * perceptual_loss_val
+
+                        # compute the NVIDIA FLIP metric
+                        flip_val = flip_loss_criterion(data_recon_val, x_val)
+
+                        originals_val = x_val + 0.5
+                        reconstructions_val = data_recon_val + 0.5
+
+                        psnr_val = 10 * torch.log10(1 / loss_function(data_recon_val, x_val))
+
+                        x_val_np = x_val.cpu().detach().numpy()
+                        reconstructions_val_np = reconstructions_val.cpu().detach().numpy()
+
+                        ssim_val_val = torch.mean(torch.Tensor([ssim(x_val_np[i], reconstructions_val_np[i],
+                                                                     data_range=1,
+                                                                     size_average=True,
+                                                                     channel_axis=0) for i in
+                                                                range(x_val_np.shape[0])]))
+
+                        # save validation information for plotting
+                        val_res_recon_error.append(recon_error_val.item())
+                        val_res_recon_psnr.append(psnr_val.item())
+                        val_res_recon_ssim.append(ssim_val_val.item())
+                        val_res_recon_lpips.append(perceptual_loss_val.item())
+                        val_res_recon_flip.append(flip_val.item())
+                        val_res_perplexity.append(perplexity_val.item())
+
+                        # save the reconstructed images
+                        writer.add_images('Val Target Images', originals_val, global_step)
+                        writer.add_images('Val Reconstructed Images', reconstructions_val, global_step)
+
+                        # save the real and fake images
+                        real_fake_images = torch.cat((originals_val, reconstructions_val))
+                        writer.add_images('Val Real and Fake Images', real_fake_images, global_step)
+
+                        # save the validation information
+                        writer.add_scalar('Val Recon Error', recon_error_val.item(), global_step)
+                        writer.add_scalar('Val PSNR', psnr_val.item(), global_step)
+                        writer.add_scalar('Val LPIPS', perceptual_loss_val.item(), global_step)
+                        writer.add_scalar('Val SSIM', ssim_val_val.item(), global_step)
+                        writer.add_scalar('Val FLIP', flip_val.item(), global_step)
+                        writer.add_scalar('Val Dictionary Learning Loss', dl_loss_val.item(), global_step)
+                        writer.add_scalar('Val Perplexity', perplexity_val.item(), global_step)
+
+                        # save the images
+                        torchvisionutils.save_image(originals_val,
+                                                    f'./results/vqgan-ema/val_target_{global_step}.png')
+                        torchvisionutils.save_image(reconstructions_val,
+                                                    f'./results/vqgan-ema/val_reconstruction_{global_step}.png')
+
+                    vqgan.train()
+
+                pbar.set_postfix(
+                    # Recon_Error=np.round(recon_error.cpu().detach().numpy().item(), 3),
+                    PSNR=np.round(psnr.cpu().detach().numpy().item(), 3),
+                    Perceptual_Loss=np.round(perceptual_loss.cpu().detach().numpy().item(), 3),
+                    # SSIM=np.round(ssim_val.item(), 3),
+                    FLIP=np.round(flip_loss.item(), 3),
+                    DL_Loss=np.round(vq_loss.cpu().detach().numpy().item(), 3),
+                    Perplexity=np.round(perplexity.cpu().detach().numpy().item(), 3),
+                    # Loss=np.round(loss.cpu().detach().numpy().item(), 3),
+                    GAN_Loss=np.round(gan_loss.cpu().detach().numpy().item(), 3),
+                    global_step=global_step
+                )
+                pbar.update(0)
+            torch.save({"model": vqgan.state_dict(),
+                        "global_step": global_step}, f'./checkpoints/vqgan-ema/epoch_{(epoch + 1)}.pt')
+
+    writer.close()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="VQGAN")
-    parser.add_argument('--embedding-dim', type=int, default=64, help='Latent dimension n_z (default: 256)')
-    parser.add_argument('--image-size', type=int, default=256, help='Image height and width (default: 256)')
-    parser.add_argument('--num-embeddings', type=int, default=512, help='Number of codebook vectors (default: 256)')
-    parser.add_argument('--beta', type=float, default=0.25, help='Commitment loss scalar (default: 0.25)')
-    parser.add_argument('--num-channels', type=int, default=3, help='Number of channels of images (default: 3)')
-    parser.add_argument('--dataset-path', type=str, default='/data_paths', help='Path to data_paths (default: /data_paths)')
-    parser.add_argument('--device', type=str, default="cuda", help='Which device the training is on')
-    parser.add_argument('--batch-size', type=int, default=4, help='Input batch size for training (default: 6)')
-    parser.add_argument('--epochs', type=int, default=1000, help='Number of epochs to train (default: 50)')
-    parser.add_argument('--learning-rate', type=float, default=2.25e-05, help='Learning rate (default: 0.0002)')
-    parser.add_argument('--beta1', type=float, default=0.5, help='Adam beta param (default: 0.0)')
-    parser.add_argument('--beta2', type=float, default=0.9, help='Adam beta param (default: 0.999)')
-    parser.add_argument('--disc-start', type=int, default=100000000, help='When to start the discriminator (default: 0)')
-    parser.add_argument('--disc-factor', type=float, default=0.2, help='')
-    parser.add_argument('--rec-loss-factor', type=float, default=1., help='Weighting factor for reconstruction loss.')
-    parser.add_argument('--perceptual-loss-factor', type=float, default=1., help='Weighting factor for perceptual loss.')
-
-    args = parser.parse_args()
-    args.dataset_path = './data/flowers'
-
-    train_vqgan = TrainVQGAN(args)
+    start = time.time()
+    print(f'Training the VQ-GAN from global step {global_step}...')
+    train_vqgan(global_step=global_step)
+    end = time.time()
+    print('Training time: %f seconds.' % (end-start))
 

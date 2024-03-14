@@ -1,10 +1,6 @@
 #  ==============================================================================
-#  Description: VQGAN vqvae.
+#  Description: Helper functions for the vqvae.
 #  Copyright (C) 2024 Xin Li
-#
-#  References:
-#     - Esser, P., Rombach, R., & Ommer, B. (2021).
-#         Taming Transformers for High-Resolution Image Synthesis. arXiv preprint arXiv:2103.17239.
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -18,64 +14,64 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #  ==============================================================================
+
 import torch
 import torch.nn as nn
-from .encoder import VQVAEEncoder, VQGANEncoder
-from .decoder import VQVAEDecoder, VQGANDecoder
-from .quantize import VQGANCodebook
+from .discriminator import Discriminator
+from .encoder import VQVAEEncoder
+from .decoder import VQVAEDecoder
+from .quantize import VectorQuantizer, VectorQuantizerEMA
+from .utils import init_weights
+
 
 class VQGAN(nn.Module):
-    '''VQ-GAN vqvae.
+    '''VQ-VAE vqvae.'''
 
-    Reference:
-     - Taming Transformers for High-Resolution Image Synthesis
-       https://arxiv.org/abs/2012.09841
-    '''
-    def __init__(self, args):
+    def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, num_embeddings,
+                 embedding_dim, commitment_cost, epsilon=1e-10, decay=0):
         super(VQGAN, self).__init__()
 
-        self._encoder = VQGANEncoder(args)
-        self._codebook = VQGANCodebook(args).to(device=args.device)
-        self._decoder = VQGANDecoder(args)
-        self._prequant_conv = nn.Conv2d(in_channels=args.embedding_dim,
-                                        out_channels=args.embedding_dim,
-                                        kernel_size=1,
-                                        stride=1).to(device=args.device)
-        self._postquant_conv = nn.Conv2d(in_channels=args.embedding_dim,
-                                            out_channels=args.embedding_dim,
-                                            kernel_size=1,
-                                            stride=1).to(device=args.device)
+        self._encoder = VQVAEEncoder(in_channels=in_channels,
+                                num_hiddens=num_hiddens,
+                                num_residual_layers=num_residual_layers,
+                                num_residual_hiddens=num_residual_hiddens)
+
+        self._pre_vq_conv = nn.Conv2d(in_channels=num_hiddens,
+                                      out_channels=embedding_dim,
+                                      kernel_size=1,
+                                      stride=1)
+
+        if decay > 0.0:
+            print("Using EMA")
+            self._vq_bottleneck = VectorQuantizerEMA(num_embeddings=num_embeddings,
+                                              embedding_dim=embedding_dim,
+                                              commitment_cost=commitment_cost,
+                                              decay=decay)
+        else:
+            self._vq_bottleneck = VectorQuantizer(num_embeddings=num_embeddings,
+                                           embedding_dim=embedding_dim,
+                                           commitment_cost=commitment_cost)
+
+        self._decoder = VQVAEDecoder(in_channels=embedding_dim,
+                                num_hiddens=num_hiddens,
+                                num_residual_layers=num_residual_layers,
+                                num_residual_hiddens=num_residual_hiddens)
+
+        self._discriminator = Discriminator()
+        self._discriminator.apply(init_weights)
 
     def forward(self, x):
-        x_encoded = self._encoder(x)
-        x_encoded_prequant = self._prequant_conv(x_encoded)
-        vq_loss, z_q, perplexity, z = self._codebook(x_encoded_prequant)
-        z_q_postquant = self._postquant_conv(z_q)
-        x_hat = self._decoder(z_q_postquant)
+        z = self._encoder(x)
+        z = self._pre_vq_conv(z)
+        loss, quantized, perplexity, encodings = self._vq_bottleneck(z)
+        x_recon = self._decoder(quantized)
 
-        return x_hat, z, vq_loss # z is the latent codebook indices
+        return loss, x_recon, perplexity, quantized
 
-    def encode(self, x):
-        '''Encode an image into its latent representation, will later be used for the transformers.
-        '''
-        x_encoded = self._encoder(x)
-        x_encoded_prequant = self._prequant_conv(x_encoded)
-        vq_loss, z_q, perplexity, z = self._codebook(x_encoded_prequant)
-
-        return z_q, z, vq_loss # z is the latent codebook indices
-
-    def decode(self, z):
-        '''Decode the latent representation into an image.
-        '''
-        z_q_postquant = self._postquant_conv(z)
-        x_hat = self._decoder(z_q_postquant)
-
-        return x_hat
-
-    def calculate_lambda(self, perceptual_loss, gan_loss, epsilon=1e-4, max_lambda=1e4, scale=0.8):
+    def calculate_lambda(self, perceptual_loss, gan_loss, epsilon=1e-6, max_lambda=1e4, scale=0.8):
         '''Calculate the lambda value for the loss function.
         '''
-        ell = self._decoder.model[-1] # the last layer of the decoder
+        ell = list(self._decoder.children())[-1] # the last layer of the decoder
         ell_weight = ell.weight
         perceptual_loss_gradients = torch.autograd.grad(perceptual_loss, ell_weight, retain_graph=True)[0]
         gan_loss_gradients = torch.autograd.grad(gan_loss, ell_weight, retain_graph=True)[0]
@@ -93,8 +89,3 @@ class VQGAN(nn.Module):
             disc_factor = value
 
         return disc_factor
-
-    def load_checkpoint(self, path):
-        self.load_state_dict(torch.load(path))
-
-

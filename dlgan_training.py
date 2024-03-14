@@ -48,7 +48,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 4
 test_batch_size = 4
-num_epochs = 2
+num_epochs = 10
 
 num_hiddens = 128
 num_residual_hiddens = 4
@@ -80,7 +80,7 @@ disc_start = 0
 validation_interval = 1000
 
 # data_paths loaders
-# flowers_dataset = FlowersDataset(root='./data/flowers')
+flowers_dataset = FlowersDataset(root='./data/flowers')
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
 ffhq_dataset = FFHQDataset(root='./data/ffhq')
@@ -88,28 +88,51 @@ ffhq_dataset = FFHQDataset(root='./data/ffhq')
 load_pretrained = True
 
 # train, val, test split
-train_size = int(0.999 * len(ffhq_dataset))
-val_size = int(0.0008 * len(ffhq_dataset))
-test_size = len(ffhq_dataset) - train_size - val_size
-ffhq_dataset_train, ffhq_dataset_val, ffhq_dataset_test = torch.utils.data.random_split(ffhq_dataset, [train_size, val_size, test_size])
+# train_size = int(0.999 * len(ffhq_dataset))
+# val_size = int(0.0008 * len(ffhq_dataset))
+# test_size = len(ffhq_dataset) - train_size - val_size
+# ffhq_dataset_train, ffhq_dataset_val, ffhq_dataset_test = torch.utils.data.random_split(ffhq_dataset, [train_size, val_size, test_size])
+#
+# train_loader = DataLoader(ffhq_dataset_train,
+#                           batch_size=train_batch_size,
+#                           shuffle=True,
+#                           pin_memory=False,
+#                           num_workers=0)
+#
+# val_loader = DataLoader(ffhq_dataset_val,
+#                         batch_size=test_batch_size,
+#                         shuffle=False,
+#                         pin_memory=True,
+#                         num_workers=0)
+#
+# test_loader = DataLoader(ffhq_dataset_test,
+#                             batch_size=test_batch_size,
+#                             shuffle=False,
+#                             pin_memory=True,
+#                             num_workers=0)
 
-train_loader = DataLoader(ffhq_dataset_train,
+train_size = int(0.999 * len(flowers_dataset))
+val_size = int(0.0008 * len(flowers_dataset))
+test_size = len(flowers_dataset) - train_size - val_size
+flowers_dataset_train, flowers_dataset_val, flowers_dataset_test = torch.utils.data.random_split(flowers_dataset, [train_size, val_size, test_size])
+
+train_loader = DataLoader(flowers_dataset_train,
                           batch_size=train_batch_size,
                           shuffle=True,
                           pin_memory=False,
                           num_workers=0)
 
-val_loader = DataLoader(ffhq_dataset_val,
+val_loader = DataLoader(flowers_dataset_val,
                         batch_size=test_batch_size,
                         shuffle=False,
                         pin_memory=True,
                         num_workers=0)
 
-test_loader = DataLoader(ffhq_dataset_test,
-                            batch_size=test_batch_size,
-                            shuffle=False,
-                            pin_memory=True,
-                            num_workers=0)
+test_loader = DataLoader(flowers_dataset_test,
+                        batch_size=test_batch_size,
+                        shuffle=False,
+                        pin_memory=True,
+                        num_workers=0)
 
 # dlgan-vanilla
 dlgan = DLGAN(in_channels=3,
@@ -126,16 +149,11 @@ dlgan = DLGAN(in_channels=3,
 global global_step
 global_step = 0
 if load_pretrained:
-    checkpoint = torch.load(f'./checkpoints/dlgan-vanilla/epoch_20.pt')
+    checkpoint = torch.load(f'./checkpoints/dlgan-vanilla/epoch_latest.pt')
     dlgan.load_state_dict(checkpoint['model'])
     global_step = checkpoint['global_step']
-# dlgan.load_state_dict(torch.load(f'./checkpoints/dlgan-vanilla/sparsity-{sparsity_level}/epoch_10.pt'))
-# dlgan-vanilla.eval()
 
-# dlvae_optimizer
-# optimizer = torch.optim.SparseAdam(dlgan-vanilla.parameters(), lr=learning_rate)
-optimizer = torch.optim.Adam(dlgan.parameters(), lr=learning_rate, amsgrad=False)
-
+# dlgan_optimizer
 opt_vae = torch.optim.Adam(list(dlgan._encoder.parameters()) +
                            list(dlgan._decoder.parameters()) +
                            list(dlgan._dl_bottleneck.parameters()) +
@@ -149,8 +167,8 @@ def loss_function(recon_x, x):
     recon_error = F.mse_loss(recon_x, x)
     return recon_error
 
-def train_dlvae(global_step=0):
-    '''Train the vqvae.'''
+def train_dlgan(global_step=0):
+    '''Train the dlgan.'''
     train_res_recon_error = []
     train_res_recon_psnr = []
     train_res_recon_ssim = []
@@ -162,20 +180,20 @@ def train_dlvae(global_step=0):
     flip_loss_criterion = LDRFLIPLoss().to(device)
 
     dlgan.train() # set the dlgan to training mode
+
+    # set up tensorboard directory
     dirpath = Path(f'./runs/dlgan-vanilla')
     if dirpath.exists() and dirpath.is_dir():
         shutil.rmtree(dirpath)
 
     writer = SummaryWriter(dirpath) # create a writer object for TensorBoard
 
-    start = time.time()
-
     for epoch in range(num_epochs):
         with tqdm(range(len(train_loader)), colour='green') as pbar:
             for i, x in zip(pbar, train_loader):
                 global_step = epoch * len(train_loader) + i + 1
+
                 # sample the mini-batch
-                # x = next(iter(train_loader))
                 x = x.to(device)
 
                 # for cifar10 loader
@@ -188,22 +206,20 @@ def train_dlvae(global_step=0):
                 # forward pass
                 # x_lr = F.interpolate(x, scale_factor=0.25, mode='bilinear', align_corners=False)
                 # x_hr = F.interpolate(x_lr, scale_factor=4, mode='bilinear', align_corners=False)
-                dl_loss, data_recon, perplexity, representation = dlgan(x)
-                perceptual_loss = perceptual_loss_criterion(data_recon, x).mean()
+                dl_loss, x_recon, perplexity, representation = dlgan(x)
+                perceptual_loss = perceptual_loss_criterion(x_recon, x).mean()
 
-                recon_error = l2_loss_factor * loss_function(data_recon, x) + lpips_loss_factor * perceptual_loss
+                recon_error = l2_loss_factor * loss_function(x_recon, x) + lpips_loss_factor * perceptual_loss
 
                 # compute the NVIDIA FLIP metric
-                flip = flip_loss_criterion(data_recon, x)
+                flip_loss = flip_loss_criterion(x_recon, x)
 
                 disc_real = dlgan._discriminator(x)
-                disc_fake = dlgan._discriminator(data_recon)
+                disc_fake = dlgan._discriminator(x_recon)
 
                 g_loss = -torch.mean(disc_fake)
 
-                disc_factor = dlgan.adopt_weight(discriminator_factor,
-                                                 global_step,
-                                                 threshold=disc_start)
+                disc_factor = dlgan.adopt_weight(discriminator_factor, global_step, threshold=disc_start)
 
                 d_loss_real = torch.mean(F.relu(1. - disc_real))
                 d_loss_fake = torch.mean(F.relu(1. + disc_fake))
@@ -211,7 +227,7 @@ def train_dlvae(global_step=0):
 
                 lambda_factor = dlgan.calculate_lambda(perceptual_loss, g_loss)
 
-                loss = recon_error + dl_loss + flip + disc_factor * lambda_factor * g_loss # total loss
+                loss = recon_error + dl_loss + flip_loss + disc_factor * lambda_factor * g_loss # total loss
 
 
                 opt_vae.zero_grad() # clear the gradients
@@ -227,9 +243,9 @@ def train_dlvae(global_step=0):
                 originals = x + 0.5 # add 0.5 to match the range of the original images [0, 1]
                 # low_res = x_lr + 0.5 # add 0.5 to match the range of the original images [0, 1]
                 # inputs = x_hr + 0.5 # add 0.5 to match the range of the original images [0, 1]
-                reconstructions = data_recon + 0.5 # add 0.5 to match the range of the original images [0, 1]
+                reconstructions = x_recon + 0.5 # add 0.5 to match the range of the original images [0, 1]
 
-                psnr = 10 * torch.log10(1 / loss_function(data_recon, x))
+                psnr = 10 * torch.log10(1 / loss_function(x_recon, x))
 
                 x_np = x.cpu().detach().numpy()
                 reconstructions_np = reconstructions.cpu().detach().numpy()
@@ -244,7 +260,7 @@ def train_dlvae(global_step=0):
                 writer.add_scalar('Train PSNR', psnr.item(), global_step)
                 writer.add_scalar('Train LPIPS', perceptual_loss.item(), global_step)
                 writer.add_scalar('Train SSIM', ssim_val.item(), global_step)
-                writer.add_scalar('Train FLIP', flip.item(), global_step)
+                writer.add_scalar('Train FLIP', flip_loss.item(), global_step)
                 writer.add_scalar('Train Dictionary Learning Loss', dl_loss.item(), global_step)
                 writer.add_scalar('Train Perplexity', perplexity.item(), global_step)
                 writer.add_scalar('Train Loss', loss.item(), global_step)
@@ -255,7 +271,7 @@ def train_dlvae(global_step=0):
                 train_res_recon_psnr.append(psnr.item())
                 train_res_recon_ssim.append(ssim_val.item())
                 train_res_recon_lpips.append(perceptual_loss.item())
-                train_res_recon_flip.append(flip.item())
+                train_res_recon_flip.append(flip_loss.item())
                 train_res_perplexity.append(perplexity.item())
 
                 # save the reconstructed images
@@ -360,7 +376,7 @@ def train_dlvae(global_step=0):
                     PSNR=np.round(psnr.cpu().detach().numpy().item(), 3),
                     Perceptual_Loss=np.round(perceptual_loss.cpu().detach().numpy().item(), 3),
                     # SSIM=np.round(ssim_val.item(), 3),
-                    FLIP=np.round(flip.item(), 3),
+                    FLIP=np.round(flip_loss.item(), 3),
                     DL_Loss=np.round(dl_loss.cpu().detach().numpy().item(), 3),
                     Perplexity=np.round(perplexity.cpu().detach().numpy().item(), 3),
                     # Loss=np.round(loss.cpu().detach().numpy().item(), 3),
@@ -369,7 +385,7 @@ def train_dlvae(global_step=0):
                 )
                 pbar.update(0)
             torch.save({ "model": dlgan.state_dict(),
-                         "global_step": global_step},f'./checkpoints/dlgan-vanilla/epoch_{(epoch + 8)}.pt')
+                         "global_step": global_step},f'./checkpoints/dlgan-vanilla/epoch_{(epoch + 1)}.pt')
 
     writer.close()
 
@@ -377,7 +393,7 @@ def train_dlvae(global_step=0):
 if __name__ == '__main__':
     start = time.time()
     print(f'Training the DL-GAN from global step {global_step}...')
-    train_dlvae(global_step=global_step)
+    train_dlgan(global_step=global_step)
     end = time.time()
     print('Training time: %f seconds.' % (end-start))
 
