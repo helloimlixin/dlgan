@@ -219,7 +219,7 @@ def train_vqgan(global_step=0):
                 writer.add_scalar('Train LPIPS', perceptual_loss.item(), global_step)
                 writer.add_scalar('Train SSIM', ssim_val.item(), global_step)
                 writer.add_scalar('Train FLIP', flip_loss.item(), global_step)
-                writer.add_scalar('Train Dictionary Learning Loss', vq_loss.item(), global_step)
+                writer.add_scalar('Train Vector Quantization Loss', vq_loss.item(), global_step)
                 writer.add_scalar('Train Perplexity', perplexity.item(), global_step)
                 writer.add_scalar('Train Loss', loss.item(), global_step)
                 writer.add_scalar('Train GAN Loss', gan_loss.item(), global_step)
@@ -323,7 +323,7 @@ def train_vqgan(global_step=0):
                         writer.add_scalar('Val LPIPS', perceptual_loss_val.item(), global_step)
                         writer.add_scalar('Val SSIM', ssim_val_val.item(), global_step)
                         writer.add_scalar('Val FLIP', flip_val.item(), global_step)
-                        writer.add_scalar('Val Dictionary Learning Loss', dl_loss_val.item(), global_step)
+                        writer.add_scalar('Val Vector Quantization Loss', dl_loss_val.item(), global_step)
                         writer.add_scalar('Val Perplexity', perplexity_val.item(), global_step)
 
                         # save the images
