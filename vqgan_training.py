@@ -40,7 +40,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
 train_batch_size = 4
-test_batch_size = 32
+test_batch_size = 4
 num_epochs = 20
 
 num_hiddens = 128
