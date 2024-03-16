@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 from .encoder import VQVAEEncoder
 from .decoder import VQVAEDecoder
-from .dictlearn import DictionaryLearningSimple, DictionaryLearningMatchingPursuit
+from .dictlearn import DictionaryLearningSimple, DictionaryLearningBatchOMP
 from .discriminator import Discriminator
 from .utils import init_weights
 
@@ -45,11 +45,11 @@ class DLGAN(nn.Module):
         #                                                commitment_cost=commitment_cost,
         #                                                epsilon=epsilon)
 
-        self._dl_bottleneck = DictionaryLearningMatchingPursuit(dim=embedding_dim,
-                                                   num_atoms=num_embeddings,
-                                                   commitment_cost=commitment_cost,
-                                                   sparsity_level=sparsity_level,
-                                                   epsilon=epsilon)
+        self._dl_bottleneck = DictionaryLearningBatchOMP(dim=embedding_dim,
+                                                         num_atoms=num_embeddings,
+                                                         commitment_cost=commitment_cost,
+                                                         sparsity_level=sparsity_level,
+                                                         epsilon=epsilon)
 
         self._decoder = VQVAEDecoder(in_channels=embedding_dim,
                                 num_hiddens=num_hiddens,
@@ -62,7 +62,7 @@ class DLGAN(nn.Module):
     def forward(self, x):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
-        representation = self._dl_bottleneck.matching_pursuit(z)
+        representation = self._dl_bottleneck.batch_omp(z)
         dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z, representation)
         x_recon = self._decoder(z_recon)
 
