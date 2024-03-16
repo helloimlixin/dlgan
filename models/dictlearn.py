@@ -205,3 +205,193 @@ class DictionaryLearningMatchingPursuit(nn.Module):
 
         return representation
 
+class DictionaryLearningOrthogonalMatchingPursuit(nn.Module):
+    """Dictionary learning algorithm with Orthogonal Matching Pursuit.
+
+  The algorithm is L1 regularized and optimized with SGD.
+
+  Attributes:
+    dim: data dimension D.
+    num_atoms: number of dictionary atoms K.
+    dictionary: dictionary matrix A with dimension K z_e D.
+    representation: representation matrix R with dimension N z_e K,
+      N as the number of data samples.
+    commitment_cost: commitment cost beta.
+    sparsity_level: sparsity level L.
+  """
+
+    def __init__(self, dim, num_atoms, commitment_cost, sparsity_level, epsilon=1e-10) -> None:
+        super(DictionaryLearningOrthogonalMatchingPursuit, self).__init__()
+        self.dim = dim
+        self.num_atoms = num_atoms
+        self.dictionary = nn.Embedding(self.num_atoms, self.dim) # dictionary matrix A with dimension D x K
+
+        self.commitment_cost = commitment_cost
+
+        self.sparsity_level = sparsity_level
+
+        self._epsilon = epsilon  # a small number to avoid the numerical issues
+
+    def forward(self, z_e, representation):
+        """Forward pass.
+
+    Args:
+      z_e: input data, for image data, the dimension is:
+          batch_size z_e num_channels z_e height z_e width
+    """
+        z_e = z_e.permute(0, 2, 3, 1).contiguous()  # permute the input
+        ze_shape = z_e.shape  # save the shape
+
+        # compute the reconstruction from the representation
+        z_dl = torch.matmul(representation, self.dictionary.weight)  # reconstruction: B z_e D
+        z_dl = z_dl.view(ze_shape).contiguous()
+
+        # compute the commitment loss
+        # commitment_loss: B z_e 1 z_e H z_e W
+        commitment_loss = self.commitment_cost * F.mse_loss(z_dl.detach(), z_e)
+        # compute the z_dl latent loss
+        e2z_loss = F.mse_loss(z_dl, z_e.detach())
+
+        recon_loss = commitment_loss + e2z_loss + self.commitment_cost * torch.abs(representation).mean()
+
+        z_dl = z_e + (z_dl - z_e).detach()  # straight-through gradient
+
+        # average pooling over the spatial dimensions
+        # avg_probs: B z_e _num_embeddings
+        avg_probs = torch.mean(representation, dim=0)
+        avg_probs = avg_probs / torch.sum(avg_probs)
+
+
+        # codebook perplexity / usage: 1
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + self._epsilon)))
+
+        # return representation, reconstruction, perplexity, regularization
+        return recon_loss, z_dl.permute(0, 3, 1, 2).contiguous(), perplexity, representation
+
+    def orthogonal_matching_pursuit(self, z_e):
+        """Compute the representation with Orthogonal Matching Pursuit."""
+        ze_flattened = z_e.view(-1, self.dim)
+        representation = torch.zeros(ze_flattened.shape[0], self.num_atoms).to(z_e.device)
+
+        for i in range(ze_flattened.shape[0]):
+            # solve for the representation
+            measurement = ze_flattened[i, :]
+            gamma = representation[i, :]
+            residual = measurement
+            supp = []
+            # dictionary dimension: K x D = n x m
+
+            for k in range(self.sparsity_level):
+                # compute the inner product
+                inner_product = torch.matmul(self.dictionary.weight / torch.norm(self.dictionary.weight.T, p=2, dim=1), residual)
+                candidates = torch.abs(inner_product)
+                # exclude the columns that have been selected
+                candidates[torch.tensor(supp, dtype=torch.int)] = -torch.inf
+                # find the index of the maximum value
+                max_index = torch.argmax(candidates)
+                # update the support set
+                supp.append(max_index)
+                # update the representation
+                gamma[max_index] = torch.matmul(self.dictionary.weight[max_index, :], residual) / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
+                # update the residual
+                reconstruction = torch.matmul(self.dictionary.weight[max_index, :], measurement) * self.dictionary.weight[max_index, :] / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
+                residual = nn.Parameter(residual - reconstruction)
+
+            representation[i, :] = gamma
+
+        return representation
+
+class DictionaryLearningBatchOMP(nn.Module):
+    """Dictionary learning algorithm with Batch Orthogonal Matching Pursuit.
+
+  The algorithm is L1 regularized and optimized with SGD.
+
+  Attributes:
+    dim: data dimension D.
+    num_atoms: number of dictionary atoms K.
+    dictionary: dictionary matrix A with dimension K z_e D.
+    representation: representation matrix R with dimension N z_e K,
+      N as the number of data samples.
+    commitment_cost: commitment cost beta.
+    sparsity_level: sparsity level L.
+  """
+
+    def __init__(self, dim, num_atoms, commitment_cost, sparsity_level, epsilon=1e-10) -> None:
+        super(DictionaryLearningBatchOMP, self).__init__()
+        self.dim = dim
+        self.num_atoms = num_atoms
+        self.dictionary = nn.Embedding(self.num_atoms, self.dim) # dictionary matrix A with dimension D x K
+
+        self.commitment_cost = commitment_cost
+
+        self.sparsity_level = sparsity_level
+
+        self._epsilon = epsilon  # a small number to avoid the numerical issues
+
+    def forward(self, z_e, representation):
+        """Forward pass.
+
+    Args:
+      z_e: input data, for image data, the dimension is:
+          batch_size z_e num_channels z_e height z_e width
+    """
+        z_e = z_e.permute(0, 2, 3, 1).contiguous()  # permute the input
+        ze_shape = z_e.shape  # save the shape
+
+        # compute the reconstruction from the representation
+        z_dl = torch.matmul(representation, self.dictionary.weight)  # reconstruction: B z_e D
+        z_dl = z_dl.view(ze_shape).contiguous()
+
+        # compute the commitment loss
+        # commitment_loss: B z_e 1 z_e H z_e W
+        commitment_loss = self.commitment_cost * F.mse_loss(z_dl.detach(), z_e)
+        # compute the z_dl latent loss
+        e2z_loss = F.mse_loss(z_dl, z_e.detach())
+
+        recon_loss = commitment_loss + e2z_loss + self.commitment_cost * torch.abs(representation).mean()
+
+        z_dl = z_e + (z_dl - z_e).detach()  # straight-through gradient
+
+        # average pooling over the spatial dimensions
+        # avg_probs: B z_e _num_embeddings
+        avg_probs = torch.mean(representation, dim=0)
+        avg_probs = avg_probs / torch.sum(avg_probs)
+
+        # codebook perplexity / usage: 1
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + self._epsilon)))
+
+        # return representation, reconstruction, perplexity, regularization
+        return recon_loss, z_dl.permute(0, 3, 1, 2).contiguous(), perplexity, representation
+
+    def batch_orthogonal_matching_pursuit(self, z_e):
+        """Compute the representation with Batch Orthogonal Matching Pursuit."""
+        ze_flattened = z_e.view(-1, self.dim)
+        representation = torch.zeros(ze_flattened.shape[0], self.num_atoms).to(z_e.device)
+
+        # solve for the representation
+        measurement = ze_flattened
+        gamma = representation
+        residual = measurement
+        supp = []
+        # dictionary dimension: K x D = n x m
+
+        for k in range(self.sparsity_level):
+            # compute the inner product
+            inner_product = torch.matmul(self.dictionary.weight / torch.norm(self.dictionary.weight.T, p=2, dim=1), residual.T)
+            candidates = torch.abs(inner_product)
+            # exclude the columns that have been selected
+            candidates[torch.tensor(supp, dtype=torch.int)] = -torch.inf
+            # find the index of the maximum value
+            max_index = torch.argmax(candidates, dim=0)
+            # update the support set
+            supp.append(max_index)
+            # update the representation
+            gamma[max_index, torch.arange(gamma.shape[0])] = torch.matmul(self.dictionary.weight[max_index, :], residual.T) / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
+            # update the residual
+            reconstruction = torch.matmul(self.dictionary.weight[max_index, :], measurement.T) * self.dictionary.weight[max_index, :] / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
+            residual = nn.Parameter(residual - reconstruction.T)
+
+        representation = gamma.T
+
+        return representation
+
