@@ -54,7 +54,7 @@ num_hiddens = 128
 num_residual_hiddens = 4
 num_residual_layers = 2
 
-embedding_dim = 32
+embedding_dim = 16
 num_embeddings = 128
 
 commitment_cost = 0.25

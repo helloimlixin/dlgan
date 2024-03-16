@@ -81,8 +81,6 @@ class DictionaryLearningSimple(nn.Module):
 
         recon_loss = commitment_loss + e2z_loss + self.commitment_cost * torch.abs(representation).mean()
 
-        z_dl = z_e + (z_dl - z_e).detach() # straight-through gradient
-
         # average pooling over the spatial dimensions
         # avg_probs: B z_e _num_embeddings
         avg_probs = torch.mean(representation, dim=0)
@@ -131,6 +129,9 @@ class DictionaryLearningBatchOMP(nn.Module):
         self.num_atoms = num_atoms
         self.dictionary = nn.Embedding(self.num_atoms, self.dim) # dictionary matrix A with dimension D x K
 
+        # normalize the dictionary
+        self.dictionary.weight.data = self.dictionary.weight.data / torch.norm(self.dictionary.weight.data, p=2, dim=0, keepdim=True)
+
         self.commitment_cost = commitment_cost
 
         self.sparsity_level = sparsity_level
@@ -153,6 +154,8 @@ class DictionaryLearningBatchOMP(nn.Module):
           batch_size z_e num_channels z_e height z_e width
     """
         z_e = z_e.permute(0, 2, 3, 1).contiguous()  # permute the input
+        # normalize the input
+        z_e = z_e / torch.norm(z_e, p=2, dim=3, keepdim=True)
         ze_shape = z_e.shape  # save the shape
 
         # compute the reconstruction from the representation
@@ -166,8 +169,6 @@ class DictionaryLearningBatchOMP(nn.Module):
         e2z_loss = F.mse_loss(z_dl, z_e.detach())
 
         recon_loss = commitment_loss + e2z_loss + self.commitment_cost * torch.abs(representation).mean()
-
-        z_dl = z_e + (z_dl - z_e).detach()  # straight-through gradient
 
         # average pooling over the spatial dimensions
         # avg_probs: B z_e _num_embeddings
@@ -183,6 +184,8 @@ class DictionaryLearningBatchOMP(nn.Module):
     def batch_omp(self, z_e):
         """Compute the representation with Matching Pursuit."""
         ze_flattened = z_e.view(-1, self.dim)  # data dimension: N x D
+        # normalize the input
+        ze_flattened = ze_flattened / torch.norm(ze_flattened, p=2, dim=1, keepdim=True)
 
         # representation = torch.zeros(ze_flattened.shape[0], self.num_atoms).to(z_e.device)  # representation matrix R with dimension N x K
 
@@ -219,7 +222,8 @@ class DictionaryLearningBatchOMP(nn.Module):
         gram = D.dot(D.T)
         Xy = D.dot(X.T)
 
-        representation = orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=self.sparsity_level).T
+        representation_np = orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=self.sparsity_level).T
+        representation = torch.from_numpy(representation_np).to(z_e.device)
 
-        return torch.tensor(representation).to(z_e.device)
+        return representation
 
