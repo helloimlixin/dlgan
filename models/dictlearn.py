@@ -18,6 +18,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from sklearn.linear_model import orthogonal_mp_gram
+
 
 class DictionaryLearningSimple(nn.Module):
     """A simple dictionary learning algorithm.
@@ -135,6 +137,14 @@ class DictionaryLearningMatchingPursuit(nn.Module):
 
         self._epsilon = epsilon  # a small number to avoid the numerical issues
 
+
+    def representation_builder(self):
+        layers = nn.ModuleList()
+        layers.append(nn.Linear(self.dim, self.num_atoms))
+        layers.append(nn.Softmax(dim=1))
+
+        return nn.Sequential(*layers)
+
     def forward(self, z_e, representation):
         """Forward pass.
 
@@ -174,36 +184,44 @@ class DictionaryLearningMatchingPursuit(nn.Module):
         """Compute the representation with Matching Pursuit."""
         ze_flattened = z_e.view(-1, self.dim)  # data dimension: N x D
 
-        representation = torch.zeros(ze_flattened.shape[0], self.num_atoms).to(z_e.device)  # representation matrix R with dimension N x K
+        # representation = torch.zeros(ze_flattened.shape[0], self.num_atoms).to(z_e.device)  # representation matrix R with dimension N x K
 
-        # check for the furthest representation
-        for i in range(ze_flattened.shape[0]):
-            # solve for the representation
-            measurement = ze_flattened[i, :] # measurement vector for the i-th sample with dimension N x D = m
-            gamma = representation[i, :] # representation vector for the i-th sample with dimension N x K = n
-            residual = measurement # residual vector for the i-th sample with dimension N x D = m
-            supp = [] # support set
-            # dictionary dimension: K x D = n x m
+        # # check for the furthest representation
+        # for i in range(ze_flattened.shape[0]):
+        #     # solve for the representation
+        #     measurement = ze_flattened[i, :] # measurement vector for the i-th sample with dimension N x D = m
+        #     gamma = representation[i, :] # representation vector for the i-th sample with dimension N x K = n
+        #     residual = measurement # residual vector for the i-th sample with dimension N x D = m
+        #     supp = [] # support set
+        #     # dictionary dimension: K x D = n x m
+        #
+        #     for k in range(self.sparsity_level):
+        #         # compute the inner product
+        #         inner_product = torch.matmul(self.dictionary.weight / torch.norm(self.dictionary.weight.T, p=2, dim=1), residual) # inner product with dimension K x N
+        #         candidates = torch.abs(inner_product)
+        #         # exclude the columns that have been selected
+        #         candidates[torch.tensor(supp, dtype=torch.int)] = -torch.inf
+        #         # find the index of the maximum value
+        #         max_index = torch.argmax(candidates)
+        #         # update the support set
+        #         supp.append(max_index)
+        #         # update the representation
+        #         gamma[max_index] = torch.matmul(self.dictionary.weight[max_index, :], residual) / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
+        #         # update the residual
+        #         reconstruction = torch.matmul(self.dictionary.weight[max_index, :], measurement) * self.dictionary.weight[max_index, :] / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
+        #         residual = residual - reconstruction
+        #
+        #     representation[i, :] = nn.Parameter(gamma)
 
-            for k in range(self.sparsity_level):
-                # compute the inner product
-                inner_product = torch.matmul(self.dictionary.weight / torch.norm(self.dictionary.weight.T, p=2, dim=1), residual) # inner product with dimension K x N
-                candidates = torch.abs(inner_product)
-                # exclude the columns that have been selected
-                candidates[torch.tensor(supp, dtype=torch.int)] = -torch.inf
-                # find the index of the maximum value
-                max_index = torch.argmax(candidates)
-                # update the support set
-                supp.append(max_index)
-                # update the representation
-                gamma[max_index] = torch.matmul(self.dictionary.weight[max_index, :], residual) / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
-                # update the residual
-                reconstruction = torch.matmul(self.dictionary.weight[max_index, :], measurement) * self.dictionary.weight[max_index, :] / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
-                residual = nn.Parameter(residual - reconstruction)
+        D = self.dictionary.weight.detach().cpu().numpy()
+        X = ze_flattened.detach().cpu().numpy()
 
-            representation[i, :] = gamma
+        gram = D.dot(D.T)
+        Xy = D.dot(X.T)
 
-        return representation
+        representation = orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=self.sparsity_level).T
+
+        return torch.tensor(representation).to(z_e.device)
 
 class DictionaryLearningOrthogonalMatchingPursuit(nn.Module):
     """Dictionary learning algorithm with Orthogonal Matching Pursuit.

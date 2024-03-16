@@ -73,7 +73,7 @@ sparsity_level = 5 # number of atoms selected
 epsilon = 1e-10 # a small number to avoid the numerical issues
 
 discriminator_factor = 0.01
-disc_start = 200000
+disc_start = 2000000
 
 validation_interval = 1000
 

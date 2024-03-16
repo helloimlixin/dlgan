@@ -59,13 +59,10 @@ class DLGAN(nn.Module):
         self._discriminator = Discriminator()
         self._discriminator.apply(init_weights)
 
-        self.update_representation = True
-
     def forward(self, x):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
-        if self.update_representation:
-            representation = self._dl_bottleneck.matching_pursuit(z)
+        representation = self._dl_bottleneck.matching_pursuit(z)
         dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z, representation)
         x_recon = self._decoder(z_recon)
 
