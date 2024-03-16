@@ -46,9 +46,9 @@ torch.manual_seed(0)
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 4
-test_batch_size = 4
-num_epochs = 10
+train_batch_size = 1
+test_batch_size = 1
+num_epochs = 20
 
 num_hiddens = 128
 num_residual_hiddens = 4
@@ -58,8 +58,6 @@ embedding_dim = 32
 num_embeddings = 128
 
 commitment_cost = 0.25
-
-decay = 0.99
 
 learning_rate = 1e-4
 
@@ -75,17 +73,17 @@ sparsity_level = 5 # number of atoms selected
 epsilon = 1e-10 # a small number to avoid the numerical issues
 
 discriminator_factor = 0.01
-disc_start = 0
+disc_start = 200000
 
 validation_interval = 1000
+
+load_pretrained = False
 
 # data_paths loaders
 flowers_dataset = FlowersDataset(root='./data/flowers')
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
 ffhq_dataset = FFHQDataset(root='./data/ffhq')
-
-load_pretrained = True
 
 # train, val, test split
 # train_size = int(0.999 * len(ffhq_dataset))
@@ -143,7 +141,6 @@ dlgan = DLGAN(in_channels=3,
               num_embeddings=num_embeddings,
               commitment_cost=commitment_cost,
               sparsity_level=sparsity_level,
-              decay=decay,
               epsilon=epsilon).to(device)
 
 global global_step
@@ -187,6 +184,7 @@ def train_dlgan(global_step=0):
         shutil.rmtree(dirpath)
 
     writer = SummaryWriter(dirpath) # create a writer object for TensorBoard
+    torch.autograd.set_detect_anomaly(True)
 
     for epoch in range(num_epochs):
         with tqdm(range(len(train_loader)), colour='green') as pbar:

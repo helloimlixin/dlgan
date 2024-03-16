@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 from .encoder import VQVAEEncoder
 from .decoder import VQVAEDecoder
-from .dictlearn import DictionaryLearningSimple
+from .dictlearn import DictionaryLearningSimple, DictionaryLearningMatchingPursuit
 from .discriminator import Discriminator
 from .utils import init_weights
 
@@ -26,7 +26,7 @@ class DLGAN(nn.Module):
     '''DL-VAE model.'''
 
     def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, num_embeddings,
-                 embedding_dim, commitment_cost, sparsity_level, decay, epsilon=1e-10):
+                 embedding_dim, commitment_cost, sparsity_level, epsilon=1e-10):
         super(DLGAN, self).__init__()
 
         self._encoder = VQVAEEncoder(in_channels=in_channels,
@@ -40,17 +40,16 @@ class DLGAN(nn.Module):
                                       stride=1)
 
 
-        self._dl_bottleneck = DictionaryLearningSimple(dim=embedding_dim,
-                                                       num_atoms=num_embeddings,
-                                                       commitment_cost=commitment_cost,
-                                                       epsilon=epsilon)
+        # self._dl_bottleneck = DictionaryLearningSimple(dim=embedding_dim,
+        #                                                num_atoms=num_embeddings,
+        #                                                commitment_cost=commitment_cost,
+        #                                                epsilon=epsilon)
 
-        # self._dl_bottleneck = DictionaryLearningEMA(dim=embedding_dim,
-        #                                            num_atoms=num_embeddings,
-        #                                            commitment_cost=commitment_cost,
-        #                                            sparsity_level=sparsity_level,
-        #                                            decay=decay,
-        #                                            epsilon=epsilon)
+        self._dl_bottleneck = DictionaryLearningMatchingPursuit(dim=embedding_dim,
+                                                   num_atoms=num_embeddings,
+                                                   commitment_cost=commitment_cost,
+                                                   sparsity_level=sparsity_level,
+                                                   epsilon=epsilon)
 
         self._decoder = VQVAEDecoder(in_channels=embedding_dim,
                                 num_hiddens=num_hiddens,
@@ -60,11 +59,14 @@ class DLGAN(nn.Module):
         self._discriminator = Discriminator()
         self._discriminator.apply(init_weights)
 
+        self.update_representation = True
+
     def forward(self, x):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
-        representation = self._dl_bottleneck(z)
-        dlloss, z_recon, perplexity, representation = self._dl_bottleneck.loss(z, representation)
+        if self.update_representation:
+            representation = self._dl_bottleneck.matching_pursuit(z)
+        dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z, representation)
         x_recon = self._decoder(z_recon)
 
         return dlloss, x_recon, perplexity, z

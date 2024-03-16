@@ -66,11 +66,11 @@ l2_loss_factor = 0.5
 lpips_loss_factor = 1 - l2_loss_factor
 
 discriminator_factor = 0.01
-disc_start = 100000
+disc_start = 80000
 
 validation_interval = 1000
 
-load_pretrained = False
+load_pretrained = True
 
 # data_paths loaders
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
@@ -118,7 +118,7 @@ vqgan = VQGAN(in_channels=3,
 global global_step
 global_step = 0
 if load_pretrained:
-    checkpoint = torch.load(f'./checkpoints/vqgan-ema/epoch_latest.pt')
+    checkpoint = torch.load(f'./checkpoints/vqgan-ema/epoch_2.pt')
     vqgan.load_state_dict(checkpoint['model'])
     global_step = checkpoint['global_step']
 
