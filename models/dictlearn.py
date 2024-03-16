@@ -225,5 +225,9 @@ class DictionaryLearningBatchOMP(nn.Module):
         representation_np = orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=self.sparsity_level).T
         representation = torch.from_numpy(representation_np).to(z_e.device)
 
+        # straight-through estimator
+        est = torch.matmul(ze_flattened, self.dictionary.weight.T)
+        representation = est + (representation - est).detach()
+
         return representation
 
