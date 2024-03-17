@@ -127,21 +127,13 @@ class DictionaryLearningBatchOMP(nn.Module):
         super(DictionaryLearningBatchOMP, self).__init__()
         self.dim = dim
         self.num_atoms = num_atoms
-        self.dictionary = nn.Embedding(self.num_atoms, self.dim) # dictionary matrix A with dimension D x K
+        self.dictionary = nn.Parameter(torch.randn(self.num_atoms, self.dim)) # dictionary matrix A with dimension D x K
 
         self.commitment_cost = commitment_cost
 
         self.sparsity_level = sparsity_level
 
         self._epsilon = epsilon  # a small number to avoid the numerical issues
-
-
-    def representation_builder(self):
-        layers = nn.ModuleList()
-        layers.append(nn.Linear(self.dim, self.num_atoms))
-        layers.append(nn.Softmax(dim=1))
-
-        return nn.Sequential(*layers)
 
     def forward(self, z_e, representation):
         """Forward pass.
@@ -156,7 +148,7 @@ class DictionaryLearningBatchOMP(nn.Module):
         ze_shape = z_e.shape  # save the shape
 
         # compute the reconstruction from the representation
-        z_dl = torch.matmul(representation, self.dictionary.weight)  # reconstruction: B z_e D
+        z_dl = torch.matmul(representation, self.dictionary)  # reconstruction: B z_e D
         z_dl = z_dl.view(ze_shape).contiguous()
 
         # compute the commitment loss
@@ -211,7 +203,7 @@ class DictionaryLearningBatchOMP(nn.Module):
         #
         #     representation[i, :] = nn.Parameter(gamma)
 
-        D = self.dictionary.weight.detach().cpu().numpy()
+        D = self.dictionary.data.detach().cpu().numpy()
         # normalize the dictionary
         D = D / np.linalg.norm(D, axis=0, keepdims=True, ord=2)
         X = ze_flattened.detach().cpu().numpy()
@@ -223,10 +215,6 @@ class DictionaryLearningBatchOMP(nn.Module):
 
         representation_np = orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=self.sparsity_level).T
         representation = torch.from_numpy(representation_np).to(z_e.device)
-
-        # straight-through estimator
-        est = torch.matmul(ze_flattened, self.dictionary.weight.T)
-        representation = est + (representation - est).detach()
 
         return representation
 
