@@ -168,6 +168,8 @@ class DictionaryLearningBatchOMP(nn.Module):
 
         recon_loss = commitment_loss + e2z_loss
 
+        z_dl = z_e + (z_dl - z_e).detach()  # B z_e C z_e H z_e W, straight-through gradient
+
         # average pooling over the spatial dimensions
         # avg_probs: B z_e _num_embeddings
         avg_probs = torch.mean(representation, dim=0)
