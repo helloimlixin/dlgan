@@ -129,9 +129,6 @@ class DictionaryLearningBatchOMP(nn.Module):
         self.num_atoms = num_atoms
         self.dictionary = nn.Embedding(self.num_atoms, self.dim) # dictionary matrix A with dimension D x K
 
-        # normalize the dictionary
-        self.dictionary.weight.data = self.dictionary.weight.data / torch.norm(self.dictionary.weight.data, p=2, dim=0, keepdim=True)
-
         self.commitment_cost = commitment_cost
 
         self.sparsity_level = sparsity_level
@@ -168,7 +165,7 @@ class DictionaryLearningBatchOMP(nn.Module):
         # compute the z_dl latent loss
         e2z_loss = F.mse_loss(z_dl, z_e.detach())
 
-        recon_loss = commitment_loss + e2z_loss + self.commitment_cost * torch.abs(representation).mean()
+        recon_loss = commitment_loss + e2z_loss
 
         # average pooling over the spatial dimensions
         # avg_probs: B z_e _num_embeddings
@@ -184,8 +181,6 @@ class DictionaryLearningBatchOMP(nn.Module):
     def batch_omp(self, z_e):
         """Compute the representation with Matching Pursuit."""
         ze_flattened = z_e.view(-1, self.dim)  # data dimension: N x D
-        # normalize the input
-        ze_flattened = ze_flattened / torch.norm(ze_flattened, p=2, dim=1, keepdim=True)
 
         # representation = torch.zeros(ze_flattened.shape[0], self.num_atoms).to(z_e.device)  # representation matrix R with dimension N x K
 
@@ -217,7 +212,11 @@ class DictionaryLearningBatchOMP(nn.Module):
         #     representation[i, :] = nn.Parameter(gamma)
 
         D = self.dictionary.weight.detach().cpu().numpy()
+        # normalize the dictionary
+        D = D / np.linalg.norm(D, axis=0, keepdims=True)
         X = ze_flattened.detach().cpu().numpy()
+        # normalize the input
+        X = X / np.linalg.norm(X, axis=0, keepdims=True)
 
         gram = D.dot(D.T)
         Xy = D.dot(X.T)

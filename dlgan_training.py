@@ -39,6 +39,9 @@ import os
 from pathlib import Path
 import shutil
 
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 # set the manual seed for reproducibility
 torch.manual_seed(0)
 
@@ -46,15 +49,15 @@ torch.manual_seed(0)
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 1
-test_batch_size = 1
-num_epochs = 20
+train_batch_size = 4
+test_batch_size = 4
+num_epochs = 50
 
 num_hiddens = 128
 num_residual_hiddens = 4
 num_residual_layers = 2
 
-embedding_dim = 16
+embedding_dim = 64
 num_embeddings = 128
 
 commitment_cost = 0.25
@@ -273,32 +276,32 @@ def train_dlgan(global_step=0):
                 train_res_perplexity.append(perplexity.item())
 
                 # save the reconstructed images
-                if global_step % 1000 == 0:
+                if global_step % 100 == 0:
                     # writer.add_images('Train Low Resolution Images', low_res, i+1)
                     writer.add_images('Train Target Images', originals, global_step)
                     # writer.add_images('Train Input Images', inputs, i+1)
                     writer.add_images('Train Reconstructed Images', reconstructions, global_step)
 
                 # save the codebook
-                if global_step % 1000 == 0:
-                    writer.add_embedding(representation.view(train_batch_size, -1),
-                                         label_img=originals,
-                                         global_step=global_step)
+                # if global_step % 100 == 0:
+                #     writer.add_embedding(representation.view(train_batch_size, -1),
+                #                          label_img=originals,
+                #                          global_step=global_step)
 
                 # save the gradient visualization
-                if global_step % 1000 == 0:
+                if global_step % 100 == 0:
                     for name, param in dlgan.named_parameters():
                         writer.add_histogram(name, param.clone().cpu().data.numpy(), global_step)
                         if param.grad is not None:
                             writer.add_histogram(name+'/grad', param.grad.clone().cpu().data.numpy(), global_step)
 
                 # save the training information
-                if global_step % 10000 == 0:
+                if global_step % 1000 == 0:
                     np.save('train_res_recon_error.npy', train_res_recon_error)
                     np.save('train_res_perplexity.npy', train_res_perplexity)
 
                 # save the images
-                if global_step % 1000 == 0:
+                if global_step % 100 == 0:
                     torchvisionutils.save_image(originals, f'./results/dlgan-batchomp/target_{global_step}.png')
                     torchvisionutils.save_image(reconstructions, f'./results/dlgan-batchomp/reconstruction_{global_step}.png')
 
