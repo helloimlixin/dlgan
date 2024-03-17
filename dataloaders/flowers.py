@@ -26,7 +26,7 @@ import albumentations
 class FlowersDataset(Dataset):
     '''Get training data_paths from the Oxford Flowers dataset.'''
 
-    def __init__(self, root, size=256, transform=None):
+    def __init__(self, root, size=64, transform=None):
         self.root = root
         self.size = size
         self.transform = transform

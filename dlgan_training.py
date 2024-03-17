@@ -40,7 +40,7 @@ from pathlib import Path
 import shutil
 
 import warnings
-warnings.filterwarnings("ignore", category=RuntimeWarning)
+# warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 # set the manual seed for reproducibility
 torch.manual_seed(0)
@@ -49,7 +49,7 @@ torch.manual_seed(0)
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 4
+train_batch_size = 16
 test_batch_size = 4
 num_epochs = 50
 

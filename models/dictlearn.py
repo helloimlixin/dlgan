@@ -19,7 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from sklearn.linear_model import orthogonal_mp_gram
-
+from ksvd import ApproximateKSVD
 
 class DictionaryLearningSimple(nn.Module):
     """A simple dictionary learning algorithm.
@@ -135,7 +135,7 @@ class DictionaryLearningBatchOMP(nn.Module):
 
         self._epsilon = epsilon  # a small number to avoid the numerical issues
 
-    def forward(self, z_e, representation):
+    def forward(self, z_e):
         """Forward pass.
 
     Args:
@@ -145,7 +145,15 @@ class DictionaryLearningBatchOMP(nn.Module):
         z_e = z_e.permute(0, 2, 3, 1).contiguous()  # permute the input
         # normalize the input
         z_e = z_e / torch.norm(z_e, p=2, dim=3, keepdim=True)
+        ze_flattened = z_e.view(-1, self.dim)  # data dimension: N x D
         ze_shape = z_e.shape  # save the shape
+
+        aksvd = ApproximateKSVD(n_components=self.num_atoms,
+                                transform_n_nonzero_coefs=self.sparsity_level)
+        # put ze_flattened to the CPU
+        ze_flattened = ze_flattened.cpu().detach().numpy()
+        self.dictionary.data = torch.tensor(aksvd.fit(ze_flattened).components_, dtype=torch.float).to(z_e.device)
+        representation = torch.tensor(aksvd.transform(ze_flattened), dtype=torch.float).to(z_e.device)
 
         # compute the reconstruction from the representation
         z_dl = torch.matmul(representation, self.dictionary)  # reconstruction: B z_e D
@@ -205,7 +213,7 @@ class DictionaryLearningBatchOMP(nn.Module):
 
         D = self.dictionary.data.detach().cpu().numpy()
         # normalize the dictionary
-        D = D / np.linalg.norm(D, axis=1, keepdims=True, ord=2)
+        D = D / np.linalg.norm(D, axis=0, keepdims=True, ord=2)
         X = ze_flattened.detach().cpu().numpy()
         # normalize the input
         X = X / np.linalg.norm(X, axis=1, keepdims=True, ord=2)

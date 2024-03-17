@@ -62,8 +62,8 @@ class DLGAN(nn.Module):
     def forward(self, x):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
-        representation = self._dl_bottleneck.batch_omp(z)
-        dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z, representation)
+        # representation = self._dl_bottleneck.batch_omp(z)
+        dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z)
         x_recon = self._decoder(z_recon)
 
         return dlloss, x_recon, perplexity, z
