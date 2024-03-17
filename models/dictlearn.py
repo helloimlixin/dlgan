@@ -132,10 +132,12 @@ class DictionaryLearningBatchOMP(nn.Module):
         self.commitment_cost = commitment_cost
 
         self.sparsity_level = sparsity_level
+        self.aksvd = ApproximateKSVD(n_components=self.num_atoms,
+                                    transform_n_nonzero_coefs=self.sparsity_level)
 
         self._epsilon = epsilon  # a small number to avoid the numerical issues
 
-    def forward(self, z_e):
+    def forward(self, z_e, update_dictionary=True):
         """Forward pass.
 
     Args:
@@ -148,12 +150,11 @@ class DictionaryLearningBatchOMP(nn.Module):
         ze_flattened = z_e.view(-1, self.dim)  # data dimension: N x D
         ze_shape = z_e.shape  # save the shape
 
-        aksvd = ApproximateKSVD(n_components=self.num_atoms,
-                                transform_n_nonzero_coefs=self.sparsity_level)
         # put ze_flattened to the CPU
         ze_flattened = ze_flattened.cpu().detach().numpy()
-        self.dictionary.data = torch.tensor(aksvd.fit(ze_flattened).components_, dtype=torch.float).to(z_e.device)
-        representation = torch.tensor(aksvd.transform(ze_flattened), dtype=torch.float).to(z_e.device)
+        if update_dictionary:
+            self.dictionary.data = torch.tensor(self.aksvd.fit(ze_flattened).components_, dtype=torch.float).to(z_e.device)
+        representation = torch.tensor(self.aksvd._transform(self.dictionary.data.cpu().detach().numpy(), ze_flattened), dtype=torch.float).to(z_e.device)
 
         # compute the reconstruction from the representation
         z_dl = torch.matmul(representation, self.dictionary)  # reconstruction: B z_e D

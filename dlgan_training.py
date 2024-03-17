@@ -49,7 +49,7 @@ torch.manual_seed(0)
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 16
+train_batch_size = 4
 test_batch_size = 4
 num_epochs = 50
 
@@ -207,7 +207,7 @@ def train_dlgan(global_step=0):
                 # forward pass
                 # x_lr = F.interpolate(x, scale_factor=0.25, mode='bilinear', align_corners=False)
                 # x_hr = F.interpolate(x_lr, scale_factor=4, mode='bilinear', align_corners=False)
-                dl_loss, x_recon, perplexity, representation = dlgan(x)
+                dl_loss, x_recon, perplexity, representation = dlgan(x, global_step)
                 perceptual_loss = perceptual_loss_criterion(x_recon, x).mean()
 
                 recon_error = l2_loss_factor * loss_function(x_recon, x) + lpips_loss_factor * perceptual_loss

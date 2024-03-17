@@ -59,11 +59,13 @@ class DLGAN(nn.Module):
         self._discriminator = Discriminator()
         self._discriminator.apply(init_weights)
 
-    def forward(self, x):
+    def forward(self, x, iters):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
-        # representation = self._dl_bottleneck.batch_omp(z)
-        dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z)
+        update_dictionary = False
+        if iters == 0 or iters % 1000 == 0:
+            update_dictionary = True
+        dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z, update_dictionary)
         x_recon = self._decoder(z_recon)
 
         return dlloss, x_recon, perplexity, z
