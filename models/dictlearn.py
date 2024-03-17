@@ -216,7 +216,7 @@ class DictionaryLearningBatchOMP(nn.Module):
         D = D / np.linalg.norm(D, axis=0, keepdims=True)
         X = ze_flattened.detach().cpu().numpy()
         # normalize the input
-        X = X / np.linalg.norm(X, axis=0, keepdims=True)
+        X = X / np.linalg.norm(X, axis=1, keepdims=True)
 
         gram = D.dot(D.T)
         Xy = D.dot(X.T)
