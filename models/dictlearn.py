@@ -58,7 +58,6 @@ class DictionaryLearningKNN(nn.Module):
         layers = nn.ModuleList()
         layers.append(nn.Linear(self.dim, self.num_atoms))
         layers.append(nn.ReLU()) # ReLU activation for simple non-linearity
-        layers.append(nn.BatchNorm1d(self.num_atoms)) # batch normalization for smoother loss landscape
         layers.append(nn.Softmax(dim=1))
 
         return nn.Sequential(*layers)
