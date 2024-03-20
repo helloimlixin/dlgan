@@ -57,7 +57,6 @@ class DictionaryLearningKNN(nn.Module):
         '''
         layers = nn.ModuleList()
         layers.append(nn.Linear(self.dim, self.num_atoms))
-        layers.append(nn.ReLU()) # ReLU activation for simple non-linearity
         layers.append(nn.Softmax(dim=1))
 
         return nn.Sequential(*layers)
