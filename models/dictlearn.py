@@ -21,8 +21,8 @@ import numpy as np
 from sklearn.linear_model import orthogonal_mp_gram
 from ksvd import ApproximateKSVD
 
-class DictionaryLearningSimple(nn.Module):
-    """A simple dictionary learning algorithm.
+class DictionaryLearningKNN(nn.Module):
+    """A simple dictionary learning algorithm with k-Nearest Neighbors.
 
   The algorithm is L1 regularized and optimized with SGD.
 
@@ -36,17 +36,19 @@ class DictionaryLearningSimple(nn.Module):
     sparsity_level: sparsity level L.
   """
 
-    def __init__(self, dim, num_atoms, commitment_cost, epsilon=1e-10) -> None:
-        super(DictionaryLearningSimple, self).__init__()
+    def __init__(self, dim, num_atoms, commitment_cost, sparsity_level, epsilon=1e-10) -> None:
+        super(DictionaryLearningKNN, self).__init__()
         self.dim = dim
         self.num_atoms = num_atoms
         self.dictionary = nn.Embedding(self.num_atoms, self.dim)
 
         self.commitment_cost = commitment_cost
+        self.sparsity_level = sparsity_level
 
         self.representation = self.representation_builder()
 
         self._epsilon = epsilon  # a small number to avoid the numerical issues
+
     def representation_builder(self):
         layers = nn.ModuleList()
         layers.append(nn.Linear(self.dim, self.num_atoms))  # output dim for one sample: K
@@ -65,12 +67,9 @@ class DictionaryLearningSimple(nn.Module):
         z_e = z_e.permute(0, 2, 3, 1).contiguous()  # permute the input
         ze_shape = z_e.shape  # save the shape
 
-        ze_flattened = z_e.view(-1, self.dim)  # data dimension: N z_e D
+        # compute the reconstruction from the sparse representation
+        z_dl = torch.matmul(representation, self.dictionary.weight)
 
-        representation = self.representation(ze_flattened)  # representation matrix R with dimension N z_e K
-        
-        # compute the reconstruction from the representation
-        z_dl = torch.matmul(representation, self.dictionary.weight)  # reconstruction: B z_e D
         z_dl = z_dl.view(ze_shape).contiguous()
 
         # compute the commitment loss
@@ -79,7 +78,10 @@ class DictionaryLearningSimple(nn.Module):
         # compute the z_dl latent loss
         e2z_loss = F.mse_loss(z_dl, z_e.detach())
 
-        recon_loss = commitment_loss + e2z_loss + self.commitment_cost * torch.abs(representation).mean()
+        recon_loss = commitment_loss + e2z_loss
+
+        # straight-through gradient
+        z_dl = z_e + (z_dl - z_e).detach()  # B z_e C z_e H z_e W
 
         # average pooling over the spatial dimensions
         # avg_probs: B z_e _num_embeddings
@@ -93,17 +95,31 @@ class DictionaryLearningSimple(nn.Module):
         return recon_loss, z_dl.permute(0, 3, 1, 2).contiguous(), perplexity, representation
 
     def forward(self, z_e):
-        """Forward pass.
+        """Forward pass to compute the sparse representation.
 
         Args:
             z_e: input data, for image data, the dimension is:
                 batch_size z_e num_channels z_e height z_e width
             """
         z_e = z_e.permute(0, 2, 3, 1).contiguous()
-        ze_shape = z_e.shape
 
         ze_flattened = z_e.view(-1, self.dim)
         representation = self.representation(ze_flattened)
+
+        # compute the reconstruction from the representation
+        z_dl = torch.matmul(representation, self.dictionary.weight)  # reconstruction: B z_e D
+
+        # compute the residual
+        residual = torch.abs(z_dl - ze_flattened)
+
+        # find the nearest neighbors
+        # indices: B z_e 1
+        encoding_indices = torch.topk(residual, k=self.sparsity_level, dim=1, largest=False, sorted=True).indices
+
+        # project the representation matrix to the sparse set of encoding indices as support
+        # representation: B z_e K
+        support_set = torch.isin(torch.arange(self.num_atoms).cuda(), encoding_indices).to(torch.int64)
+        representation.data[:, ~support_set] = 0
 
         return representation
 
@@ -226,6 +242,9 @@ class DictionaryLearningBatchOMP(nn.Module):
 
         representation_np = orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=self.sparsity_level).T
         representation = torch.from_numpy(representation_np).to(z_e.device)
+
+        # normalize the representation
+        representation = representation / torch.norm(representation, p=1, dim=1, keepdim=True)
 
         return representation
 

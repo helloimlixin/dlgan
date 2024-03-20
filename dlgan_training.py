@@ -40,7 +40,7 @@ from pathlib import Path
 import shutil
 
 import warnings
-# warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 # set the manual seed for reproducibility
 torch.manual_seed(0)
@@ -81,6 +81,8 @@ disc_start = 2000000
 validation_interval = 1000000000
 
 load_pretrained = False
+
+model_tag = 'knn'
 
 # data_paths loaders
 flowers_dataset = FlowersDataset(root='./data/flowers')
@@ -149,7 +151,7 @@ dlgan = DLGAN(in_channels=3,
 global global_step
 global_step = 0
 if load_pretrained:
-    checkpoint = torch.load(f'./checkpoints/dlgan-batchomp/epoch_latest.pt')
+    checkpoint = torch.load(f'./checkpoints/dlgan-{model_tag}/epoch_3.pt')
     dlgan.load_state_dict(checkpoint['model'])
     global_step = checkpoint['global_step']
 
@@ -182,7 +184,7 @@ def train_dlgan(global_step=0):
     dlgan.train() # set the dlgan to training mode
 
     # set up tensorboard directory
-    dirpath = Path(f'./runs/dlgan-batchomp')
+    dirpath = Path(f'./runs/dlgan-{model_tag}')
     if dirpath.exists() and dirpath.is_dir():
         shutil.rmtree(dirpath)
 
@@ -302,8 +304,8 @@ def train_dlgan(global_step=0):
 
                 # save the images
                 if global_step % 100 == 0:
-                    torchvisionutils.save_image(originals, f'./results/dlgan-batchomp/target_{global_step}.png')
-                    torchvisionutils.save_image(reconstructions, f'./results/dlgan-batchomp/reconstruction_{global_step}.png')
+                    torchvisionutils.save_image(originals, f'./results/dlgan-{model_tag}/target_{global_step}.png')
+                    torchvisionutils.save_image(reconstructions, f'./results/dlgan-{model_tag}/reconstruction_{global_step}.png')
 
                 # perform the validation
                 if global_step % validation_interval == 0:
@@ -367,8 +369,8 @@ def train_dlgan(global_step=0):
                         writer.add_scalar('Val Perplexity', perplexity_val.item(), global_step)
 
                         # save the images
-                        torchvisionutils.save_image(originals_val, f'./results/dlgan-batchomp/val_target_{global_step}.png')
-                        torchvisionutils.save_image(reconstructions_val, f'./results/dlgan-batchomp/val_reconstruction_{global_step}.png')
+                        torchvisionutils.save_image(originals_val, f'./results/dlgan-{model_tag}/val_target_{global_step}.png')
+                        torchvisionutils.save_image(reconstructions_val, f'./results/dlgan-{model_tag}/val_reconstruction_{global_step}.png')
 
                     dlgan.train()
 
@@ -386,7 +388,7 @@ def train_dlgan(global_step=0):
                 )
                 pbar.update(0)
             torch.save({ "model": dlgan.state_dict(),
-                         "global_step": global_step},f'./checkpoints/dlgan-batchomp/epoch_{(epoch + 1)}.pt')
+                         "global_step": global_step},f'./checkpoints/dlgan-{model_tag}/epoch_{(epoch + 1)}.pt')
 
     writer.close()
 

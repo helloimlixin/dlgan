@@ -141,8 +141,8 @@ def norm_tensor(x):
     :param x: batch of images
     :return: normalized batch of images
     """
-    norm_factor = torch.sqrt(torch.sum(x**2, dim=1, keepdim=True))
-    return x / (norm_factor + 1e-10)
+    norm_factor = torch.sqrt(torch.sum(x**2, dim=1, keepdim=True) + 1e-10)
+    return x / norm_factor
 
 
 def spatial_average(x):
