@@ -50,9 +50,16 @@ class DictionaryLearningKNN(nn.Module):
         self._epsilon = epsilon  # a small number to avoid the numerical issues
 
     def representation_builder(self):
+        '''
+        Build the representation layer.
+
+        :return: weight matrix is of dimension K x D
+        '''
         layers = nn.ModuleList()
-        layers.append(nn.Linear(self.dim, self.num_atoms))  # output dim for one sample: K
-        layers.append(nn.Softmax(dim=1))  # convert the output to [0, 1] range
+        layers.append(nn.Linear(self.dim, self.num_atoms))
+        layers.append(nn.ReLU()) # ReLU activation for simple non-linearity
+        layers.append(nn.BatchNorm1d(self.num_atoms)) # batch normalization for smoother loss landscape
+        layers.append(nn.Softmax(dim=1))
 
         return nn.Sequential(*layers)
 
@@ -103,7 +110,7 @@ class DictionaryLearningKNN(nn.Module):
             """
         z_e = z_e.permute(0, 2, 3, 1).contiguous()
 
-        ze_flattened = z_e.view(-1, self.dim)
+        ze_flattened = z_e.view(-1, self.dim).contiguous()  # data dimension: N x D
         representation = self.representation(ze_flattened)
 
         # compute the reconstruction from the representation
