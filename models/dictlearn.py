@@ -41,7 +41,6 @@ class DictionaryLearningKNN(nn.Module):
         self.dim = dim
         self.num_atoms = num_atoms
         self.dictionary = nn.Embedding(self.num_atoms, self.dim)
-
         self.commitment_cost = commitment_cost
         self.sparsity_level = sparsity_level
 
@@ -53,7 +52,7 @@ class DictionaryLearningKNN(nn.Module):
         '''
         Build the representation layer.
 
-        :return: weight matrix is of dimension K x D
+        :return: weight matrix is of dimension N x K
         '''
         layers = nn.ModuleList()
         layers.append(nn.Linear(self.dim, self.num_atoms))
@@ -109,25 +108,18 @@ class DictionaryLearningKNN(nn.Module):
         z_e = z_e.permute(0, 2, 3, 1).contiguous()
 
         ze_flattened = z_e.view(-1, self.dim).contiguous()  # data dimension: N x D
-        representation = self.representation(ze_flattened)
+        representation = self.representation(ze_flattened)  # representation: N x K
 
-        # compute the reconstruction from the representation
-        z_dl = torch.matmul(representation, self.dictionary.weight)  # reconstruction: B z_e D
+        g = torch.matmul(ze_flattened, self.dictionary.weight.T) # gradient N x K
 
-        # compute the residual
-        residual = torch.abs(z_dl - ze_flattened)
+        residual = torch.abs(g - representation) # residual N x K
+        # find the k-nearest neighbors
+        encoding_indices = torch.topk(residual, self.sparsity_level, dim=1, largest=False, sorted=True).indices
 
-        # find the nearest neighbors
-        # indices: B z_e 1
-        encoding_indices = torch.topk(residual, k=self.sparsity_level, dim=1, largest=False, sorted=True).indices
-
-        # project the representation matrix to the sparse set of encoding indices as support
-        # representation: B z_e K
         support_set = torch.isin(torch.arange(self.num_atoms).cuda(), encoding_indices).to(torch.int64)
         representation.data[:, ~support_set] = 0
 
         return representation
-
 
 class DictionaryLearningBatchOMP(nn.Module):
     """Dictionary learning algorithm with Batch Orthogonal Matching Pursuit.

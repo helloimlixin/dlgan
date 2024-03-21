@@ -76,7 +76,7 @@ sparsity_level = 5 # number of atoms selected
 epsilon = 1e-10 # a small number to avoid the numerical issues
 
 discriminator_factor = 0.01
-disc_start = 2000000
+disc_start = 1000000000
 
 validation_interval = 1000000000
 
@@ -151,7 +151,7 @@ dlgan = DLGAN(in_channels=3,
 global global_step
 global_step = 0
 if load_pretrained:
-    checkpoint = torch.load(f'./checkpoints/dlgan-{model_tag}/epoch_3.pt')
+    checkpoint = torch.load(f'./checkpoints/dlgan-{model_tag}/epoch_50.pt')
     dlgan.load_state_dict(checkpoint['model'])
     global_step = checkpoint['global_step']
 
