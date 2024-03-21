@@ -115,7 +115,7 @@ class DictionaryLearningKNN(nn.Module):
 
         residual = torch.abs(g) # residual N x K
         # find the k-nearest neighbors
-        encoding_indices = torch.topk(residual, self.sparsity_level, dim=1, largest=False, sorted=True).indices
+        encoding_indices = torch.topk(residual, self.sparsity_level, dim=1, largest=True, sorted=True).indices
 
         support_set = torch.isin(torch.arange(self.num_atoms).cuda(), encoding_indices).to(torch.int64)
         representation.data[~support_set, :] = 0
