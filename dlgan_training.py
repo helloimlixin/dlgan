@@ -82,7 +82,7 @@ validation_interval = 1000000000
 
 load_pretrained = False
 
-model_tag = 'knn'
+model_tag = 'ksvd'
 
 # data_paths loaders
 flowers_dataset = FlowersDataset(root='./data/flowers')
