@@ -46,17 +46,17 @@ class DLGAN(nn.Module):
         #                                             sparsity_level=sparsity_level,
         #                                             epsilon=epsilon)
 
-        self._dl_bottleneck = DictionaryLearningOMP(dim=embedding_dim,
-                                                         num_atoms=num_embeddings,
-                                                         commitment_cost=commitment_cost,
-                                                         sparsity_level=sparsity_level,
-                                                         epsilon=epsilon)
+        # self._dl_bottleneck = DictionaryLearningOMP(dim=embedding_dim,
+        #                                                  num_atoms=num_embeddings,
+        #                                                  commitment_cost=commitment_cost,
+        #                                                  sparsity_level=sparsity_level,
+        #                                                  epsilon=epsilon)
 
-        # self._dl_bottleneck = DictionaryLearningkSVD(dim=embedding_dim,
-        #                                              num_atoms=num_embeddings,
-        #                                              commitment_cost=commitment_cost,
-        #                                              sparsity_level=sparsity_level,
-        #                                              epsilon=epsilon)
+        self._dl_bottleneck = DictionaryLearningkSVD(dim=embedding_dim,
+                                                     num_atoms=num_embeddings,
+                                                     commitment_cost=commitment_cost,
+                                                     sparsity_level=sparsity_level,
+                                                     epsilon=epsilon)
 
         self._decoder = VQVAEDecoder(in_channels=embedding_dim,
                                 num_hiddens=num_hiddens,
@@ -69,11 +69,11 @@ class DLGAN(nn.Module):
     def forward(self, x, iters):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
-        # update_dictionary = False
-        # if iters == 0 or iters % 2000 == 0:
-        #     update_dictionary = True
-        representation = self._dl_bottleneck(z)
-        dlloss, z_recon, perplexity, representation = self._dl_bottleneck.loss(z, representation)
+        update_dictionary = False
+        if iters == 0 or iters % 2000 == 0:
+            update_dictionary = True
+        # representation = self._dl_bottleneck(z, update_dictionary=update_dictionary)
+        dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z, update_dictionary=update_dictionary)
         x_recon = self._decoder(z_recon)
 
         return dlloss, x_recon, perplexity, z

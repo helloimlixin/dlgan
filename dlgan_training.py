@@ -55,10 +55,10 @@ num_epochs = 50
 
 num_hiddens = 128
 num_residual_hiddens = 4
-num_residual_layers = 2
+num_residual_layers = 4
 
-embedding_dim = 32
-num_embeddings = 128
+embedding_dim = 16
+num_embeddings = 32
 
 commitment_cost = 0.25
 
@@ -91,51 +91,51 @@ flowers_dataset = FlowersDataset(root='./data/flowers')
 ffhq_dataset = FFHQDataset(root='./data/ffhq')
 
 # train, val, test split
-# train_size = int(0.999 * len(ffhq_dataset))
-# val_size = int(0.0008 * len(ffhq_dataset))
-# test_size = len(ffhq_dataset) - train_size - val_size
-# ffhq_dataset_train, ffhq_dataset_val, ffhq_dataset_test = torch.utils.data.random_split(ffhq_dataset, [train_size, val_size, test_size])
-#
-# train_loader = DataLoader(ffhq_dataset_train,
-#                           batch_size=train_batch_size,
-#                           shuffle=True,
-#                           pin_memory=False,
-#                           num_workers=0)
-#
-# val_loader = DataLoader(ffhq_dataset_val,
-#                         batch_size=test_batch_size,
-#                         shuffle=False,
-#                         pin_memory=True,
-#                         num_workers=0)
-#
-# test_loader = DataLoader(ffhq_dataset_test,
-#                             batch_size=test_batch_size,
-#                             shuffle=False,
-#                             pin_memory=True,
-#                             num_workers=0)
+train_size = int(0.999 * len(ffhq_dataset))
+val_size = int(0.0008 * len(ffhq_dataset))
+test_size = len(ffhq_dataset) - train_size - val_size
+ffhq_dataset_train, ffhq_dataset_val, ffhq_dataset_test = torch.utils.data.random_split(ffhq_dataset, [train_size, val_size, test_size])
 
-train_size = int(0.999 * len(flowers_dataset))
-val_size = int(0.0008 * len(flowers_dataset))
-test_size = len(flowers_dataset) - train_size - val_size
-flowers_dataset_train, flowers_dataset_val, flowers_dataset_test = torch.utils.data.random_split(flowers_dataset, [train_size, val_size, test_size])
-
-train_loader = DataLoader(flowers_dataset_train,
+train_loader = DataLoader(ffhq_dataset_train,
                           batch_size=train_batch_size,
                           shuffle=True,
                           pin_memory=False,
                           num_workers=0)
 
-val_loader = DataLoader(flowers_dataset_val,
+val_loader = DataLoader(ffhq_dataset_val,
                         batch_size=test_batch_size,
                         shuffle=False,
                         pin_memory=True,
                         num_workers=0)
 
-test_loader = DataLoader(flowers_dataset_test,
-                        batch_size=test_batch_size,
-                        shuffle=False,
-                        pin_memory=True,
-                        num_workers=0)
+test_loader = DataLoader(ffhq_dataset_test,
+                            batch_size=test_batch_size,
+                            shuffle=False,
+                            pin_memory=True,
+                            num_workers=0)
+
+# train_size = int(0.999 * len(flowers_dataset))
+# val_size = int(0.0008 * len(flowers_dataset))
+# test_size = len(flowers_dataset) - train_size - val_size
+# flowers_dataset_train, flowers_dataset_val, flowers_dataset_test = torch.utils.data.random_split(flowers_dataset, [train_size, val_size, test_size])
+#
+# train_loader = DataLoader(flowers_dataset_train,
+#                           batch_size=train_batch_size,
+#                           shuffle=True,
+#                           pin_memory=False,
+#                           num_workers=0)
+#
+# val_loader = DataLoader(flowers_dataset_val,
+#                         batch_size=test_batch_size,
+#                         shuffle=False,
+#                         pin_memory=True,
+#                         num_workers=0)
+#
+# test_loader = DataLoader(flowers_dataset_test,
+#                         batch_size=test_batch_size,
+#                         shuffle=False,
+#                         pin_memory=True,
+#                         num_workers=0)
 
 # dlgan-batchomp
 dlgan = DLGAN(in_channels=3,

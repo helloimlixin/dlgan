@@ -175,9 +175,7 @@ class DictionaryLearningOMP(nn.Module):
         ze_shape = z_e.shape  # save the shape
 
         X = z_e.view(-1, self.dim)  # data dimension: N x D
-        D = self.dictionary
-        Gamma = representation
-        self.dictionary.data, representation = self.update_dict(X, D, Gamma)
+        self.dictionary.data, representation = self.update_dict(X, self.dictionary, representation)
 
         # compute the reconstruction from the representation
         z_dl = torch.matmul(representation, self.dictionary)  # reconstruction: B z_e D
@@ -303,7 +301,7 @@ class DictionaryLearningkSVD(nn.Module):
 
         self.sparsity_level = sparsity_level
         self.dl = ApproximateKSVD(n_components=self.num_atoms,
-                                    transform_n_nonzero_coefs=self.sparsity_level)
+                                  transform_n_nonzero_coefs=self.sparsity_level)
 
         self._epsilon = epsilon  # a small number to avoid the numerical issues
 
@@ -315,19 +313,17 @@ class DictionaryLearningkSVD(nn.Module):
           batch_size z_e num_channels z_e height z_e width
     """
         z_e = z_e.permute(0, 2, 3, 1).contiguous()  # permute the input
-        # normalize the input
-        z_e = z_e / torch.norm(z_e, p=2, dim=3, keepdim=True)
+
         ze_flattened = z_e.view(-1, self.dim)  # data dimension: N x D
         ze_shape = z_e.shape  # save the shape
 
         # put ze_flattened to the CPU
         ze_flattened = ze_flattened.cpu().detach().numpy()
-        if update_dictionary:
-            self.dictionary.data = torch.tensor(self.dl.fit(ze_flattened).components_, dtype=torch.float).to(z_e.device)
+        self.dictionary.data = torch.tensor(self.dl.fit(ze_flattened).components_, dtype=torch.float).to(z_e.device)
         representation = torch.tensor(self.dl._transform(self.dictionary.cpu().detach().numpy(), ze_flattened), dtype=torch.float).to(z_e.device)
 
         # compute the reconstruction from the representation
-        z_dl = torch.matmul(representation, self.dictionary)  # reconstruction: B z_e D
+        z_dl = torch.matmul(representation, self.dictionary)  # reconstruction
         z_dl = z_dl.view(ze_shape).contiguous()
 
         # compute the commitment loss
@@ -338,7 +334,7 @@ class DictionaryLearningkSVD(nn.Module):
 
         recon_loss = commitment_loss + e2z_loss
 
-        z_dl = z_e + (z_dl - z_e).detach()  # B z_e C z_e H z_e W, straight-through gradient
+        z_dl = z_e + (z_dl - z_e).detach()  # straight-through gradient
 
         # average pooling over the spatial dimensions
         # avg_probs: B z_e _num_embeddings
@@ -388,17 +384,12 @@ class DictionaryLearningkSVD(nn.Module):
         # normalize the dictionary
         D = D / np.linalg.norm(D, axis=0, keepdims=True, ord=2)
         X = ze_flattened.detach().cpu().numpy()
-        # normalize the input
-        X = X / np.linalg.norm(X, axis=1, keepdims=True, ord=2)
 
         gram = D.dot(D.T)
         Xy = D.dot(X.T)
 
         representation_np = orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=self.sparsity_level).T
         representation = torch.from_numpy(representation_np).to(z_e.device)
-
-        # normalize the representation
-        representation = representation / torch.norm(representation, p=1, dim=1, keepdim=True)
 
         return representation
 
