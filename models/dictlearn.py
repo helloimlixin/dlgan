@@ -17,379 +17,186 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from sklearn.linear_model import orthogonal_mp_gram
-from ksvd import ApproximateKSVD
-
-class DictionaryLearningKNN(nn.Module):
-    """A simple dictionary learning algorithm with k-Nearest Neighbors.
-
-  The algorithm is L1 regularized and optimized with SGD.
-
-  Attributes:
-    dim: data dimension D.
-    num_atoms: number of dictionary atoms K.
-    dictionary: dictionary matrix A with dimension K z_e D.
-    representation: representation matrix R with dimension N z_e K,
-      N as the number of data samples.
-    commitment_cost: commitment cost beta.
-    sparsity_level: sparsity level L.
-  """
-
-    def __init__(self, dim, num_atoms, commitment_cost, sparsity_level, epsilon=1e-10) -> None:
-        super(DictionaryLearningKNN, self).__init__()
-        self.dim = dim
-        self.num_atoms = num_atoms
-        self.dictionary = nn.Embedding(self.num_atoms, self.dim)
-        self.commitment_cost = commitment_cost
-        self.sparsity_level = sparsity_level
-
-        self.representation = self.representation_builder()
-
-        self._epsilon = epsilon  # a small number to avoid the numerical issues
-
-    def representation_builder(self):
-        '''
-        Build the representation layer.
-
-        :return: weight matrix is of dimension N x K
-        '''
-        layers = nn.ModuleList()
-        layers.append(nn.Linear(self.dim, self.num_atoms))
-        layers.append(nn.Softmax(dim=1))
-
-        return nn.Sequential(*layers)
 
 
-    def loss(self, z_e, representation):
-        """Forward pass.
-
-    Args:
-      z_e: input data, for image data, the dimension is:
-          batch_size z_e num_channels z_e height z_e width
+class DictLearn(nn.Module):
     """
-        z_e = z_e.permute(0, 2, 3, 1).contiguous()  # permute the input
-        ze_shape = z_e.shape  # save the shape
-        ze_flattened = z_e.view(-1, self.dim)  # data dimension: N x D
+    Online Dictionary Learning with Batch Orthogonal Matching Pursuit (Batch-OMP) for Sparse Coding.
 
-        distances = (torch.sum(ze_flattened ** 2, dim=1, keepdim=True) + torch.sum(self.dictionary.weight ** 2, dim=1)
-                     - 2 * torch.matmul(ze_flattened, self.dictionary.weight.T))
-
-        # find the nearest neighbors
-        _, indices = torch.topk(distances, self.sparsity_level, dim=1, largest=False)
-
-        # construct the representation
-        encodings = torch.zeros(ze_flattened.shape[0], self.num_atoms).to(z_e.device)
-        encodings.scatter_(1, indices, 1)
-
-        representation = representation * encodings
-
-        # compute the reconstruction from the sparse representation
-        z_dl = torch.matmul(representation, self.dictionary.weight)
-
-        z_dl = z_dl.view(ze_shape).contiguous()
-
-        # compute the commitment loss
-        # commitment_loss: B z_e 1 z_e H z_e W
-        commitment_loss = self.commitment_cost * F.mse_loss(z_dl.detach(), z_e)
-        # compute the z_dl latent loss
-        e2z_loss = F.mse_loss(z_dl, z_e.detach())
-
-        recon_loss = commitment_loss + e2z_loss
-
-        # straight-through gradient
-        z_dl = z_e + (z_dl - z_e).detach()  # B z_e C z_e H z_e W
-
-        # average pooling over the spatial dimensions
-        # avg_probs: B z_e _num_embeddings
-        avg_probs = torch.mean(representation, dim=0)
-        avg_probs = avg_probs / torch.sum(avg_probs)  # normalize the representation
-
-        # codebook perplexity / usage: 1
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + self._epsilon)))
-
-        # return representation, reconstruction, perplexity, regularization
-        return recon_loss, z_dl.permute(0, 3, 1, 2).contiguous(), perplexity, representation
-
-    def forward(self, z_e):
-        """Forward pass to compute the sparse representation.
-
-        Args:
-            z_e: input data, for image data, the dimension is:
-                batch_size z_e num_channels z_e height z_e width
-        #     """
-        z_e = z_e.permute(0, 2, 3, 1).contiguous()
-
-        ze_flattened = z_e.view(-1, self.dim).contiguous()  # data dimension: N x D
-        D = self.dictionary.weight  # dictionary subset with dimension D x K
-        representation = self.representation(ze_flattened)  # representation with dimension N x K
-
-        return representation
-
-
-def reconstruction_distance(D, cur_Z, last_Z):
-    distance = torch.norm(D.mm(last_Z - cur_Z), p=2, dim=0) / torch.norm(D.mm(last_Z), p=2, dim=0)
-    max_distance = distance.max()
-    return distance, max_distance
-
-
-class DictionaryLearningOMP(nn.Module):
-    """Dictionary learning algorithm with Batch Orthogonal Matching Pursuit.
-
-  The algorithm is L1 regularized and optimized with SGD.
-
-  Attributes:
-    dim: data dimension D.
-    num_atoms: number of dictionary atoms K.
-    dictionary: dictionary matrix A with dimension K z_e D.
-    representation: representation matrix R with dimension N z_e K,
-      N as the number of data samples.
-    commitment_cost: commitment cost beta.
-    sparsity_level: sparsity level L.
-  """
-
-    def __init__(self, dim, num_atoms, commitment_cost, sparsity_level, epsilon=1e-10) -> None:
-        super(DictionaryLearningOMP, self).__init__()
-        self.dim = dim
-        self.num_atoms = num_atoms
-        self.dictionary = nn.Parameter(torch.randn(self.num_atoms, self.dim)) # dictionary matrix A with dimension D x K
-
-        self.commitment_cost = commitment_cost
-
-        self.sparsity_level = sparsity_level
-        self.dl = ApproximateKSVD(n_components=self.num_atoms,
-                                    transform_n_nonzero_coefs=self.sparsity_level)
-
-        self._epsilon = epsilon  # a small number to avoid the numerical issues
-
-    def loss(self, z_e, representation):
-        """Forward pass.
-
-    Args:
-      z_e: input data, for image data, the dimension is:
-          batch_size z_e num_channels z_e height z_e width
+    References:
+    - Rubinstein, R., Zibulevsky, M. and Elad, M., "Efficient Implementation of the K-SVD Algorithm using Batch Orthogonal Matching Pursuit," CS Technion, 2008.
+    - Mairal J, Bach F, Ponce J, Sapiro G. Online dictionary learning for sparse coding.
     """
-        z_e = z_e.permute(0, 2, 3, 1).contiguous()  # permute the input
-        # normalize the input
-        z_e = z_e / torch.norm(z_e, p=2, dim=3, keepdim=True)
-        ze_shape = z_e.shape  # save the shape
 
-        X = z_e.view(-1, self.dim)  # data dimension: N x D
-        self.dictionary.data, representation = self.update_dict(X, self.dictionary, representation)
+    def __init__(self, num_embeddings, embedding_dim, commitment_cost, sparsity_level):
+        """
+        class constructor for DictLearn
+        :param num_embeddings: number of dictionary atoms
+        :param sparsity_level: maximum sparsity (number of non-zero coefficients) of the representation, reduces to K-Means (Vector Quantization) when set to 1
+        :param initial_dict: initial dictionary if given, otherwise random rows from the data matrix are used
+        :param max_iter: maximum number of iterations
+        """
+        super(DictLearn, self).__init__()
 
-        # compute the reconstruction from the representation
-        z_dl = torch.matmul(representation, self.dictionary)  # reconstruction: B z_e D
-        z_dl = z_dl.view(ze_shape).contiguous()
-
-        # compute the commitment loss
-        # commitment_loss: B z_e 1 z_e H z_e W
-        commitment_loss = self.commitment_cost * F.mse_loss(z_dl.detach(), z_e)
-        # compute the z_dl latent loss
-        e2z_loss = F.mse_loss(z_dl, z_e.detach())
-
-        recon_loss = commitment_loss + e2z_loss
-
-        z_dl = z_e + (z_dl - z_e).detach()  # B z_e C z_e H z_e W, straight-through gradient
-
-        # average pooling over the spatial dimensions
-        # avg_probs: B z_e _num_embeddings
-        avg_probs = torch.mean(representation, dim=0)
-        avg_probs = avg_probs / torch.sum(avg_probs)  # normalize the representation
-
-        # codebook perplexity / usage: 1
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + self._epsilon)))
-
-        # return representation, reconstruction, perplexity, regularization
-        return recon_loss, z_dl.permute(0, 3, 1, 2).contiguous(), perplexity, representation
-
-    def forward(self, z_e):
-        """Compute the representation with Matching Pursuit."""
-        X = z_e.view(self.dim, -1)  # data dimension: N x D
-
-        # representation = torch.zeros(ze_flattened.shape[0], self.num_atoms).to(z_e.device)  # representation matrix R with dimension N x K
-
-        # # check for the furthest representation
-        # for i in range(ze_flattened.shape[0]):
-        #     # solve for the representation
-        #     measurement = ze_flattened[i, :] # measurement vector for the i-th sample with dimension N x D = m
-        #     gamma = representation[i, :] # representation vector for the i-th sample with dimension N x K = n
-        #     residual = measurement # residual vector for the i-th sample with dimension N x D = m
-        #     supp = [] # support set
-        #     # dictionary dimension: K x D = n x m
-        #
-        #     for k in range(self.sparsity_level):
-        #         # compute the inner product
-        #         inner_product = torch.matmul(self.dictionary.weight / torch.norm(self.dictionary.weight.T, p=2, dim=1), residual) # inner product with dimension K x N
-        #         candidates = torch.abs(inner_product)
-        #         # exclude the columns that have been selected
-        #         candidates[torch.tensor(supp, dtype=torch.int)] = -torch.inf
-        #         # find the index of the maximum value
-        #         max_index = torch.argmax(candidates)
-        #         # update the support set
-        #         supp.append(max_index)
-        #         # update the representation
-        #         gamma[max_index] = torch.matmul(self.dictionary.weight[max_index, :], residual) / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
-        #         # update the residual
-        #         reconstruction = torch.matmul(self.dictionary.weight[max_index, :], measurement) * self.dictionary.weight[max_index, :] / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
-        #         residual = residual - reconstruction
-        #
-        #     representation[i, :] = nn.Parameter(gamma)
-
-        D = self.dictionary.t()
-        k = self.sparsity_level
-        Dt = D.t()
-        Dpinv = torch.pinverse(D)
-        r = X
-        I = []
-        stopping = False
-        last_sparse_code = torch.zeros((D.size()[1], X.size()[1]), dtype=X.dtype).cuda()
-        sparse_code = torch.zeros((D.size()[1], X.size()[1]), dtype=X.dtype).cuda()
-
-        step = 0
-        while not stopping:
-            k_hat = torch.argmax(Dt.mm(r), 0)
-            I.append(k_hat)
-            sparse_code = Dpinv.mm(X)  # Should be: (torch.pinverse(D[:,I])*X).sum(0)
-            r = X - D.mm(sparse_code)
-
-            distance, max_distance = reconstruction_distance(D, sparse_code, last_sparse_code)
-            stopping = len(I) >= k or max_distance < self._epsilon
-            last_sparse_code = sparse_code
-
-            step += 1
-
-        return sparse_code.t()
-
-    def update_dict(self, X, D, Gamma):
-        for j in range(self.sparsity_level):
-            I = Gamma[:, j] > 0
-            if torch.sum(I) == 0:
-                continue
-
-            D[j, :].data = torch.tensor(0, dtype=torch.float).to(X.device)
-            g = Gamma[I, j].t()
-            r = X[I, :] - Gamma[I, :] @ D
-            d = r.t() @ g
-            d /= torch.linalg.norm(d)
-            g = r @ d
-            D[j, :].data = d
-            Gamma[I, j].data = g.t()
-        return D, Gamma
-
-class DictionaryLearningkSVD(nn.Module):
-    """Online dictionary learning.
-
-  The algorithm is L1 regularized and optimized with SGD.
-
-  Attributes:
-    dim: data dimension D.
-    num_atoms: number of dictionary atoms K.
-    dictionary: dictionary matrix A with dimension K z_e D.
-    representation: representation matrix R with dimension N z_e K,
-      N as the number of data samples.
-    commitment_cost: commitment cost beta.
-    sparsity_level: sparsity level L.
-  """
-
-    def __init__(self, dim, num_atoms, commitment_cost, sparsity_level, epsilon=1e-10) -> None:
-        super(DictionaryLearningkSVD, self).__init__()
-        self.dim = dim
-        self.num_atoms = num_atoms
-        self.dictionary = nn.Parameter(torch.randn(self.num_atoms, self.dim)) # dictionary matrix A with dimension D x K
-
-        self.commitment_cost = commitment_cost
-
-        self.sparsity_level = sparsity_level
-        self.dl = ApproximateKSVD(n_components=self.num_atoms,
-                                  transform_n_nonzero_coefs=self.sparsity_level)
-
-        self._epsilon = epsilon  # a small number to avoid the numerical issues
-
-    def forward(self, z_e, update_dictionary=True):
-        """Forward pass.
-
-    Args:
-      z_e: input data, for image data, the dimension is:
-          batch_size z_e num_channels z_e height z_e width
-    """
-        z_e = z_e.permute(0, 2, 3, 1).contiguous()  # permute the input
-
-        ze_flattened = z_e.view(-1, self.dim)  # data dimension: N x D
-        ze_shape = z_e.shape  # save the shape
-
-        # put ze_flattened to the CPU
-        ze_flattened = ze_flattened.cpu().detach().numpy()
-        self.dictionary.data = torch.tensor(self.dl.fit(ze_flattened).components_, dtype=torch.float).to(z_e.device)
-        representation = torch.tensor(self.dl._transform(self.dictionary.cpu().detach().numpy(), ze_flattened), dtype=torch.float).to(z_e.device)
-
-        # compute the reconstruction from the representation
-        z_dl = torch.matmul(representation, self.dictionary)  # reconstruction
-        z_dl = z_dl.view(ze_shape).contiguous()
-
-        # compute the commitment loss
-        # commitment_loss: B z_e 1 z_e H z_e W
-        commitment_loss = self.commitment_cost * F.mse_loss(z_dl.detach(), z_e)
-        # compute the z_dl latent loss
-        e2z_loss = F.mse_loss(z_dl, z_e.detach())
-
-        recon_loss = commitment_loss + e2z_loss
-
-        z_dl = z_e + (z_dl - z_e).detach()  # straight-through gradient
-
-        # average pooling over the spatial dimensions
-        # avg_probs: B z_e _num_embeddings
-        avg_probs = torch.mean(representation, dim=0)
-        avg_probs = avg_probs / torch.sum(avg_probs)  # normalize the representation
-
-        # codebook perplexity / usage: 1
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + self._epsilon)))
-
-        # return representation, reconstruction, perplexity, regularization
-        return recon_loss, z_dl.permute(0, 3, 1, 2).contiguous(), perplexity, representation
-
-    def batch_omp(self, z_e):
-        """Compute the representation with Matching Pursuit."""
-        ze_flattened = z_e.view(-1, self.dim)  # data dimension: N x D
-
-        # representation = torch.zeros(ze_flattened.shape[0], self.num_atoms).to(z_e.device)  # representation matrix R with dimension N x K
-
-        # # check for the furthest representation
-        # for i in range(ze_flattened.shape[0]):
-        #     # solve for the representation
-        #     measurement = ze_flattened[i, :] # measurement vector for the i-th sample with dimension N x D = m
-        #     gamma = representation[i, :] # representation vector for the i-th sample with dimension N x K = n
-        #     residual = measurement # residual vector for the i-th sample with dimension N x D = m
-        #     supp = [] # support set
-        #     # dictionary dimension: K x D = n x m
-        #
-        #     for k in range(self.sparsity_level):
-        #         # compute the inner product
-        #         inner_product = torch.matmul(self.dictionary.weight / torch.norm(self.dictionary.weight.T, p=2, dim=1), residual) # inner product with dimension K x N
-        #         candidates = torch.abs(inner_product)
-        #         # exclude the columns that have been selected
-        #         candidates[torch.tensor(supp, dtype=torch.int)] = -torch.inf
-        #         # find the index of the maximum value
-        #         max_index = torch.argmax(candidates)
-        #         # update the support set
-        #         supp.append(max_index)
-        #         # update the representation
-        #         gamma[max_index] = torch.matmul(self.dictionary.weight[max_index, :], residual) / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
-        #         # update the residual
-        #         reconstruction = torch.matmul(self.dictionary.weight[max_index, :], measurement) * self.dictionary.weight[max_index, :] / torch.norm(self.dictionary.weight[max_index, :], p=2) ** 2
-        #         residual = residual - reconstruction
-        #
-        #     representation[i, :] = nn.Parameter(gamma)
-
-        D = self.dictionary.data.detach().cpu().numpy()
+        self._num_embeddings = num_embeddings
+        self._embedding_dim = embedding_dim
+        self._commitment_cost = commitment_cost
+        self._sparsity_level = sparsity_level
+        self._dictionary = nn.Parameter(torch.randn(self._embedding_dim, self._num_embeddings, device='cuda'))
         # normalize the dictionary
-        D = D / np.linalg.norm(D, axis=0, keepdims=True, ord=2)
-        X = ze_flattened.detach().cpu().numpy()
+        self._dictionary.data /= torch.linalg.norm(self._dictionary, dim=0)
 
-        gram = D.dot(D.T)
-        Xy = D.dot(X.T)
+        self._col_update = nn.Parameter(torch.zeros(self._embedding_dim, device='cuda'))
 
-        representation_np = orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=self.sparsity_level).T
-        representation = torch.from_numpy(representation_np).to(z_e.device)
+        self._gamma = None
+        self._A = None
+        self._B = None
 
-        return representation
+    def forward(self, z_e):
+        # permute
+        z_e = z_e.permute(0, 2, 3, 1).contiguous()
+        ze_shape = z_e.shape
+        # Flatten input
+        z_e = z_e.view(self._embedding_dim, -1)  # convert to column-major order, i.e., each column is a data point
 
+        """
+        Sparse Coding Stage
+        """
+
+        if self._gamma is None:
+            self._gamma = nn.Parameter(torch.zeros((self._num_embeddings, z_e.shape[1]), device='cuda'))
+        else:
+            self._gamma.data = self.update_gamma(z_e)
+
+        encodings = self._gamma
+
+        # compute reconstruction
+        recon = self._dictionary @ self._gamma
+
+        dict_latent_loss = F.mse_loss(recon, z_e.detach())
+        sc_latent_loss = F.mse_loss(recon.detach(), z_e)  # latent loss from sparse coding
+        loss = sc_latent_loss * self._commitment_cost + dict_latent_loss
+
+        # straight-through gradient estimator
+        recon = z_e + (recon - z_e).detach()
+
+        # compute perplexity
+
+        perplexity = torch.exp(
+            -torch.sum(F.softmax(self._gamma, dim=0) * torch.log(F.softmax(self._gamma, dim=0) + 1e-10), dim=0).mean())
+
+        return loss, recon.reshape(ze_shape).permute(0, 3, 1, 2).contiguous(), z_e.detach(), perplexity, encodings
+
+    def update_dictionary(self, z_e, t):
+        """online dictionary update via Block Coordinate Descent.
+
+        References:
+        - Mairal J, Bach F, Ponce J, Sapiro G. Online dictionary learning for sparse coding.
+          In Proceedings of the 26th annual international conference on machine learning 2009 Jun 14 (pp. 689-696).
+        """
+        '''
+        Online Dictionary Update Stage (Block Coordinate Descent)
+        '''
+
+        # compute beta
+        eta = z_e.shape[1]
+
+        if t < eta:
+            theta = t * eta
+        else:
+            theta = eta ** 2 + t - eta
+
+        beta = (theta + 1 - eta) / (theta + 1)
+
+        # precomputations
+        if self._A is None:
+            self._A = self._gamma.mm(self._gamma.t())
+        else:
+            self._A.data = beta * self._A.data + self._gamma.mm(self._gamma.t())
+        if self._B is None:
+            self._B = z_e.mm(self._gamma.t())
+        else:
+            self._B.data = beta * self._B.data + z_e.mm(self._gamma.t())
+
+        # choose the column with the largest gradient
+        j = torch.argmax(-(self._B - self._dictionary @ self._A - self._dictionary * self._A.diag()), dim=1)
+
+        # Block-Coordinate Descent
+        # for j in range(self._num_embeddings):
+        #     self._dictionary[:, j].data = (self._B[:, j] - self._dictionary @ self._A[:, j] + self._dictionary[:, j] *
+        #                                    self._A[j, j]) / self._A[j, j]
+        #     self._dictionary[:, j].data = self._dictionary[:, j] / torch.linalg.norm(self._dictionary[:, j])
+        self._dictionary[:, j].data = (self._B[:, j] - self._dictionary @ self._A[:, j] + self._dictionary[:, j] * self._A[j, j]) / self._A[j, j]
+        self._dictionary[:, j].data = self._dictionary[:, j] / torch.linalg.norm(self._dictionary[:, j])
+
+    def update_gamma(self, signals):
+        """sparse coding stage
+
+        Implemented using the Batch Orthogonal Matching Pursuit (OMP) algorithm.
+
+        Reference:
+        - Rubinstein, R., Zibulevsky, M. and Elad, M., "Efficient Implementation of the K-SVD Algorithm using Batch Orthogonal Matching Pursuit," CS Technion, 2008.
+
+        :param signals: input signals to be sparsely coded
+        """
+        embedding_dim, num_signals = signals.shape
+        dictionary_t = self._dictionary.t()  # save the transpose of the dictionary for faster computation
+        gram_matrix = dictionary_t.mm(self._dictionary)  # the Gram matrix, dimension: num_atoms x num_atoms
+        eps = torch.norm(signals, dim=0)  # residual, initialized as the L2 norm of the signal
+        corr_init = dictionary_t.mm(
+            signals).t()  # initial correlation vector, transposed to make num_signals the first dimension
+        gamma = torch.zeros_like(corr_init)  # placeholder for the sparse coefficients
+
+        corr = corr_init
+        L = torch.ones(num_signals, 1, 1,
+                       device=signals.device)  # contains the progressive Cholesky of the Gram matrix in the selected indices
+        I = torch.zeros(num_signals, 0, dtype=torch.long, device=signals.device)  # placeholder for the index set
+        omega = torch.ones_like(corr_init, dtype=torch.bool)  # used to zero out elements in corr before argmax
+        signal_idx = torch.arange(num_signals, device=signals.device)
+        delta = torch.zeros(num_signals, device=signals.device)  # to track residuals
+
+        k = 0
+        while k < self._sparsity_level:
+            k += 1
+            k_hats = torch.argmax(torch.abs(corr * omega), dim=1)  # select the index of the maximum correlation
+            # update omega to make sure we do not select the same index twice
+            omega[torch.arange(k_hats.shape[0], device=signals.device), k_hats] = 0
+            expanded_signal_idx = signal_idx.unsqueeze(0).expand(k,
+                                                                 num_signals).t()  # expand is more efficient than repeat
+
+            if k > 1:  # Cholesky update
+                G_ = gram_matrix[I[signal_idx, :], k_hats[expanded_signal_idx[..., :-1]]].view(num_signals, k - 1,
+                                                                                               1)  # compute for all signals in a vectorized manner
+                w = torch.linalg.solve_triangular(L, G_, upper=False).view(-1, 1, k - 1)
+                w_br = torch.sqrt(
+                    1 - (w ** 2).sum(dim=2, keepdim=True))  # L bottom-right corner element: sqrt(1 - w.t().mm(w))
+
+                # concatenate into the new Cholesky: L <- [[L, 0], [w, w_br]]
+                k_zeros = torch.zeros(num_signals, k - 1, 1, device=signals.device)
+                L = torch.cat((
+                    torch.cat((L, k_zeros), dim=2),
+                    torch.cat((w, w_br), dim=2),
+                ), dim=1)
+
+            # update non-zero indices
+            I = torch.cat([I, k_hats.unsqueeze(1)], dim=1)
+
+            # solve L
+            corr_ = corr[expanded_signal_idx, I[signal_idx, :]].view(num_signals, k, 1)
+            gamma_ = torch.cholesky_solve(corr_, L)
+
+            # de-stack gamma into the non-zero elements
+            gamma[signal_idx.unsqueeze(1), I[signal_idx]] = gamma_[signal_idx].squeeze(-1)
+
+            # beta = G_I * gamma_I
+            beta = gamma[signal_idx.unsqueeze(1), I[signal_idx]].unsqueeze(1).bmm(
+                gram_matrix[I[signal_idx], :]).squeeze(1)
+
+            corr = corr_init - beta
+
+            # # update residual
+            # new_delta = (gamma * beta).sum(dim=1)
+            # eps += delta - new_delta
+            # delta = new_delta
+
+        return gamma.t()  # transpose the sparse coefficients to make num_signals the first dimension

@@ -55,10 +55,10 @@ num_epochs = 50
 
 num_hiddens = 128
 num_residual_hiddens = 4
-num_residual_layers = 4
+num_residual_layers = 2
 
-embedding_dim = 16
-num_embeddings = 32
+embedding_dim = 32
+num_embeddings = 128
 
 commitment_cost = 0.25
 
@@ -78,14 +78,14 @@ epsilon = 1e-10 # a small number to avoid the numerical issues
 discriminator_factor = 0.01
 disc_start = 1000000000
 
-validation_interval = 1000000000
+validation_interval = 10000000000
 
 load_pretrained = False
 
-model_tag = 'ksvd'
+model_tag = 'odl'
 
 # data_paths loaders
-flowers_dataset = FlowersDataset(root='./data/flowers')
+# flowers_dataset = FlowersDataset(root='./data/flowers')
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
 ffhq_dataset = FFHQDataset(root='./data/ffhq')
@@ -98,7 +98,7 @@ ffhq_dataset_train, ffhq_dataset_val, ffhq_dataset_test = torch.utils.data.rando
 
 train_loader = DataLoader(ffhq_dataset_train,
                           batch_size=train_batch_size,
-                          shuffle=True,
+                          shuffle=False,
                           pin_memory=False,
                           num_workers=0)
 
@@ -117,6 +117,16 @@ test_loader = DataLoader(ffhq_dataset_test,
 # train_size = int(0.999 * len(flowers_dataset))
 # val_size = int(0.0008 * len(flowers_dataset))
 # test_size = len(flowers_dataset) - train_size - val_size
+
+# compute data variance
+data_variance = 0
+sample_size = 100
+for i, x in enumerate(train_loader):
+    data_variance += torch.var(x)
+    if i == sample_size:
+        break
+
+data_variance /= sample_size
 # flowers_dataset_train, flowers_dataset_val, flowers_dataset_test = torch.utils.data.random_split(flowers_dataset, [train_size, val_size, test_size])
 #
 # train_loader = DataLoader(flowers_dataset_train,
@@ -203,13 +213,10 @@ def train_dlgan(global_step=0):
                 # (x, _) = next(iter(train_loader))
                 # x = x.to(device)
 
-                # opt_vae.zero_grad() # clear the gradients
-                # opt_dl.zero_grad() # clear the gradients
-
                 # forward pass
                 # x_lr = F.interpolate(x, scale_factor=0.25, mode='bilinear', align_corners=False)
                 # x_hr = F.interpolate(x_lr, scale_factor=4, mode='bilinear', align_corners=False)
-                dl_loss, x_recon, perplexity, representation = dlgan(x, global_step)
+                dl_loss, x_recon, latents, perplexity, encodings = dlgan(x, global_step)
                 perceptual_loss = perceptual_loss_criterion(x_recon, x).mean()
 
                 recon_error = l2_loss_factor * loss_function(x_recon, x) + lpips_loss_factor * perceptual_loss
@@ -230,7 +237,7 @@ def train_dlgan(global_step=0):
 
                 lambda_factor = dlgan.calculate_lambda(perceptual_loss, g_loss)
 
-                loss = recon_error + dl_loss + flip_loss + disc_factor * lambda_factor * g_loss # total loss
+                loss = (recon_error + dl_loss + disc_factor * lambda_factor * g_loss) / data_variance # total loss
 
 
                 opt_vae.zero_grad() # clear the gradients
@@ -302,6 +309,21 @@ def train_dlgan(global_step=0):
                     np.save('train_res_recon_error.npy', train_res_recon_error)
                     np.save('train_res_perplexity.npy', train_res_perplexity)
 
+                # create error bars for the training information
+                if global_step % 100 == 0:
+                    writer.add_scalars('Train Recon Error', {'mean': np.mean(train_res_recon_error),
+                                                             'std': np.std(train_res_recon_error)}, global_step)
+                    writer.add_scalars('Train PSNR', {'mean': np.mean(train_res_recon_psnr),
+                                                      'std': np.std(train_res_recon_psnr)}, global_step)
+                    writer.add_scalars('Train LPIPS', {'mean': np.mean(train_res_recon_lpips),
+                                                       'std': np.std(train_res_recon_lpips)}, global_step)
+                    writer.add_scalars('Train SSIM', {'mean': np.mean(train_res_recon_ssim),
+                                                      'std': np.std(train_res_recon_ssim)}, global_step)
+                    writer.add_scalars('Train FLIP', {'mean': np.mean(train_res_recon_flip),
+                                                      'std': np.std(train_res_recon_flip)}, global_step)
+                    writer.add_scalars('Train Perplexity', {'mean': np.mean(train_res_perplexity),
+                                                            'std': np.std(train_res_perplexity)}, global_step)
+
                 # save the images
                 if global_step % 100 == 0:
                     torchvisionutils.save_image(originals, f'./results/dlgan-{model_tag}/target_{global_step}.png')
@@ -322,7 +344,7 @@ def train_dlgan(global_step=0):
                         x_val = x_val.to(device)
 
                         # forward pass
-                        dl_loss_val, data_recon_val, perplexity_val, representation_val = dlgan(x_val)
+                        dl_loss_val, data_recon_val, perplexity_val, representation_val = dlgan(x_val, global_step)
                         perceptual_loss_val = perceptual_loss_criterion(data_recon_val, x_val).mean()
 
                         recon_error_val = l2_loss_factor * loss_function(data_recon_val, x_val) + lpips_loss_factor * perceptual_loss_val

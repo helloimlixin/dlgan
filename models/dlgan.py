@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 from .encoder import VQVAEEncoder
 from .decoder import VQVAEDecoder
-from .dictlearn import DictionaryLearningKNN, DictionaryLearningOMP, DictionaryLearningkSVD
+from .dictlearn import DictLearn
 from .discriminator import Discriminator
 from .utils import init_weights
 
@@ -39,24 +39,10 @@ class DLGAN(nn.Module):
                                       kernel_size=1,
                                       stride=1)
 
-
-        # self._dl_bottleneck = DictionaryLearningKNN(dim=embedding_dim,
-        #                                             num_atoms=num_embeddings,
-        #                                             commitment_cost=commitment_cost,
-        #                                             sparsity_level=sparsity_level,
-        #                                             epsilon=epsilon)
-
-        # self._dl_bottleneck = DictionaryLearningOMP(dim=embedding_dim,
-        #                                                  num_atoms=num_embeddings,
-        #                                                  commitment_cost=commitment_cost,
-        #                                                  sparsity_level=sparsity_level,
-        #                                                  epsilon=epsilon)
-
-        self._dl_bottleneck = DictionaryLearningkSVD(dim=embedding_dim,
-                                                     num_atoms=num_embeddings,
-                                                     commitment_cost=commitment_cost,
-                                                     sparsity_level=sparsity_level,
-                                                     epsilon=epsilon)
+        self._dl_bottleneck = DictLearn(num_embeddings=num_embeddings,
+                                        embedding_dim=embedding_dim,
+                                        commitment_cost=commitment_cost,
+                                        sparsity_level=sparsity_level)
 
         self._decoder = VQVAEDecoder(in_channels=embedding_dim,
                                 num_hiddens=num_hiddens,
@@ -69,14 +55,11 @@ class DLGAN(nn.Module):
     def forward(self, x, iters):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
-        update_dictionary = False
-        if iters == 0 or iters % 2000 == 0:
-            update_dictionary = True
-        # representation = self._dl_bottleneck(z, update_dictionary=update_dictionary)
-        dlloss, z_recon, perplexity, representation = self._dl_bottleneck(z, update_dictionary=update_dictionary)
-        x_recon = self._decoder(z_recon)
+        loss, sparsified, latents, perplexity, encodings = self._dl_bottleneck(z)
+        # self._dl_bottleneck.update_dictionary(latents, iters) # update the dictionary
+        x_recon = self._decoder(sparsified)
 
-        return dlloss, x_recon, perplexity, z
+        return loss, x_recon, latents, perplexity, encodings
 
     def calculate_lambda(self, perceptual_loss, gan_loss, epsilon=1e-6, max_lambda=1e4, scale=0.8):
         '''Calculate the lambda value for the loss function.

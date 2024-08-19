@@ -70,7 +70,7 @@ disc_start = 80000
 
 validation_interval = 1000
 
-load_pretrained = True
+load_pretrained = False
 
 # data_paths loaders
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
