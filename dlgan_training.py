@@ -296,7 +296,9 @@ def train_dlgan(global_step=0):
                 # save the codebook
                 if global_step % 100 == 0:
                     # create num_embeddings patches from the originals
-                    patches = originals.unfold(1, 3, 3).unfold(2, 64, 64).unfold(3, 64, 64).contiguous().view(-1, 3, 64, 64)
+                    patch_dim = int(np.sqrt(originals.shape[2] * originals.shape[3] * train_batch_size / num_embeddings))
+                    patches = originals.unfold(1, 3, 3).unfold(2, patch_dim, patch_dim).unfold(3, patch_dim, patch_dim).contiguous().view(-1, 3, patch_dim, patch_dim)
+
                     writer.add_embedding(dlgan._dl_bottleneck._dictionary.data.T,
                                          label_img=patches,
                                          global_step=global_step)
