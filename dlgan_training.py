@@ -182,6 +182,7 @@ def loss_function(recon_x, x):
 def train_dlgan(global_step=0):
     '''Train the dlgan.'''
     train_res_recon_error = []
+    train_res_dl_loss = []
     train_res_recon_psnr = []
     train_res_recon_ssim = []
     train_res_recon_flip = []
@@ -278,6 +279,7 @@ def train_dlgan(global_step=0):
 
                 # save training information for plotting
                 train_res_recon_error.append(recon_error.item())
+                train_res_dl_loss.append(dl_loss.item())
                 train_res_recon_psnr.append(psnr.item())
                 train_res_recon_ssim.append(ssim_val.item())
                 train_res_recon_lpips.append(perceptual_loss.item())
@@ -398,10 +400,10 @@ def train_dlgan(global_step=0):
 
                 pbar.set_postfix(
                     PSNR=np.mean(train_res_recon_psnr[-100:]),
+                    DL_Loss=np.mean(train_res_dl_loss[-100:]),
                     LPIPS=np.mean(train_res_recon_lpips[-100:]),
                     SSIM=np.mean(train_res_recon_ssim[-100:]),
                     FLIP=np.mean(train_res_recon_flip[-100:]),
-                    DL_Loss=np.mean(train_res_perplexity[-100:]),
                     Perplexity=np.mean(train_res_perplexity[-100:]),
                     global_step=global_step
                 )
