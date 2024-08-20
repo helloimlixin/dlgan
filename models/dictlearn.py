@@ -65,6 +65,9 @@ class DictLearn(nn.Module):
         Sparse Coding Stage
         """
 
+        # normalize the dictionary
+        self._dictionary.data = self._dictionary / torch.linalg.norm(self._dictionary, dim=0)
+
         if self._gamma is None:
             self._gamma = nn.Parameter(torch.zeros((self._num_embeddings, z_e.shape[1]), device='cuda'))
         else:
