@@ -52,6 +52,8 @@ class DictLearn(nn.Module):
         self._A = None
         self._B = None
 
+        self._beta = nn.Parameter(torch.tensor(1 - commitment_cost, device='cuda')) # learnable parameter for dictionary update
+
     def forward(self, z_e):
         # permute
         z_e = z_e.permute(0, 2, 3, 1).contiguous()
@@ -74,7 +76,7 @@ class DictLearn(nn.Module):
         recon = self._dictionary @ self._gamma
 
         e_latent_loss = F.mse_loss(recon.detach(), z_e)  # latent loss from encoder
-        loss = e_latent_loss * self._commitment_cost + F.mse_loss(recon, z_e.detach())
+        loss = e_latent_loss * self._commitment_cost + self._beta * F.mse_loss(recon, z_e.detach())
 
         # straight-through gradient estimator
         recon = z_e + (recon - z_e).detach()
