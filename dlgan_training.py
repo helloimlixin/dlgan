@@ -219,7 +219,7 @@ def train_dlgan(global_step=0):
                 dl_loss, x_recon, latents, perplexity, encodings = dlgan(x, global_step)
                 perceptual_loss = perceptual_loss_criterion(x_recon, x).mean()
 
-                recon_error = l2_loss_factor * loss_function(x_recon, x) + lpips_loss_factor * perceptual_loss
+                recon_error = (l2_loss_factor * loss_function(x_recon, x) + lpips_loss_factor * perceptual_loss) / data_variance
 
                 # compute the NVIDIA FLIP metric
                 flip_loss = flip_loss_criterion(x_recon, x)
@@ -237,7 +237,7 @@ def train_dlgan(global_step=0):
 
                 lambda_factor = dlgan.calculate_lambda(perceptual_loss, g_loss)
 
-                loss = (recon_error + dl_loss + disc_factor * lambda_factor * g_loss) / data_variance # total loss
+                loss = recon_error + dl_loss + disc_factor * lambda_factor * g_loss # total loss
 
 
                 opt_vae.zero_grad() # clear the gradients

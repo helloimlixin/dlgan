@@ -73,15 +73,14 @@ class DictLearn(nn.Module):
         # compute reconstruction
         recon = self._dictionary @ self._gamma
 
-        dict_latent_loss = F.mse_loss(recon, z_e.detach())
+        # dict_latent_loss = F.mse_loss(recon, z_e.detach())
         sc_latent_loss = F.mse_loss(recon.detach(), z_e)  # latent loss from sparse coding
-        loss = sc_latent_loss * self._commitment_cost + dict_latent_loss
+        loss = sc_latent_loss * self._commitment_cost
 
         # straight-through gradient estimator
         recon = z_e + (recon - z_e).detach()
 
         # compute perplexity
-
         perplexity = torch.exp(
             -torch.sum(F.softmax(self._gamma, dim=0) * torch.log(F.softmax(self._gamma, dim=0) + 1e-10), dim=0).mean())
 
