@@ -397,18 +397,14 @@ def train_dlgan(global_step=0):
                     dlgan.train()
 
                 pbar.set_postfix(
-                    # Recon_Error=np.round(recon_error.cpu().detach().numpy().item(), 3),
-                    PSNR=np.round(psnr.cpu().detach().numpy().item(), 3),
-                    Perceptual_Loss=np.round(perceptual_loss.cpu().detach().numpy().item(), 3),
-                    # SSIM=np.round(ssim_val.item(), 3),
-                    FLIP=np.round(flip_loss.item(), 3),
-                    DL_Loss=np.round(dl_loss.cpu().detach().numpy().item(), 3),
-                    Perplexity=np.round(perplexity.cpu().detach().numpy().item(), 3),
-                    # Loss=np.round(loss.cpu().detach().numpy().item(), 3),
-                    GAN_Loss=np.round(gan_loss.cpu().detach().numpy().item(), 3),
+                    PSNR=np.mean(train_res_recon_psnr[-100:]),
+                    LPIPS=np.mean(train_res_recon_lpips[-100:]),
+                    SSIM=np.mean(train_res_recon_ssim[-100:]),
+                    FLIP=np.mean(train_res_recon_flip[-100:]),
+                    DL_Loss=np.mean(train_res_perplexity[-100:]),
+                    Perplexity=np.mean(train_res_perplexity[-100:]),
                     global_step=global_step
                 )
-                pbar.update(0)
             torch.save({ "model": dlgan.state_dict(),
                          "global_step": global_step},f'./checkpoints/dlgan-{model_tag}/epoch_{(epoch + 1)}.pt')
 
