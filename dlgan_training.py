@@ -49,7 +49,7 @@ torch.manual_seed(0)
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 4
+train_batch_size = 16
 test_batch_size = 4
 num_epochs = 50
 
@@ -58,7 +58,7 @@ num_residual_hiddens = 4
 num_residual_layers = 2
 
 embedding_dim = 32
-num_embeddings = 128
+num_embeddings = 256
 
 commitment_cost = 0.25
 
@@ -294,10 +294,15 @@ def train_dlgan(global_step=0):
                     writer.add_images('Train Reconstructed Images', reconstructions, global_step)
 
                 # save the codebook
-                # if global_step % 100 == 0:
-                #     writer.add_embedding(representation.view(train_batch_size, -1),
-                #                          label_img=originals,
-                #                          global_step=global_step)
+                if global_step % 100 == 0:
+                    # create num_embeddings patches from the originals
+                    patches = originals.unfold(1, 3, 3).unfold(2, 64, 64).unfold(3, 64, 64).contiguous().view(-1, 3, 64, 64)
+                    writer.add_embedding(dlgan._dl_bottleneck._dictionary.data.T,
+                                         label_img=patches,
+                                         global_step=global_step)
+                    # writer.add_embedding(latents.view(originals.size(0), -1).contiguous(),
+                    #                      label_img=originals,
+                    #                      global_step=global_step)
 
                 # save the gradient visualization
                 if global_step % 100 == 0:
