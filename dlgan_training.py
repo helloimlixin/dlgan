@@ -49,16 +49,16 @@ torch.manual_seed(0)
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 4
+train_batch_size = 8
 test_batch_size = 4
 num_epochs = 10
 
 num_hiddens = 128
-num_residual_hiddens = 4
+num_residual_hiddens = 32
 num_residual_layers = 2
 
-embedding_dim = 32
-num_embeddings = 256
+embedding_dim = 64
+num_embeddings = 512
 
 commitment_cost = 0.25
 
@@ -100,19 +100,22 @@ train_loader = DataLoader(ffhq_dataset_train,
                           batch_size=train_batch_size,
                           shuffle=False,
                           pin_memory=False,
+                          drop_last=True,
                           num_workers=0)
 
 val_loader = DataLoader(ffhq_dataset_val,
                         batch_size=test_batch_size,
                         shuffle=False,
                         pin_memory=True,
+                        drop_last=True,
                         num_workers=0)
 
 test_loader = DataLoader(ffhq_dataset_test,
-                            batch_size=test_batch_size,
-                            shuffle=False,
-                            pin_memory=True,
-                            num_workers=0)
+                         batch_size=test_batch_size,
+                         shuffle=False,
+                         pin_memory=True,
+                         drop_last=True,
+                         num_workers=0)
 
 # train_size = int(0.999 * len(flowers_dataset))
 # val_size = int(0.0008 * len(flowers_dataset))
@@ -297,6 +300,7 @@ def train_dlgan(global_step=0):
                 if global_step % 100 == 0:
                     # create num_embeddings patches from the originals
                     patch_dim = int(np.sqrt(originals.shape[2] * originals.shape[3] * train_batch_size / num_embeddings))
+
                     patches = originals.unfold(1, 3, 3).unfold(2, patch_dim, patch_dim).unfold(3, patch_dim, patch_dim).contiguous().view(-1, 3, patch_dim, patch_dim)
 
                     writer.add_embedding(dlgan._dl_bottleneck._dictionary.data.T,
