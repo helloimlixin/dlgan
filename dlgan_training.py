@@ -49,7 +49,7 @@ torch.manual_seed(0)
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 16
+train_batch_size = 4
 test_batch_size = 4
 num_epochs = 10
 

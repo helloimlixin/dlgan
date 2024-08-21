@@ -52,12 +52,13 @@ class DictLearn(nn.Module):
         self._A = None
         self._B = None
 
-        self._beta = nn.Parameter(torch.tensor(1 - commitment_cost, device='cuda')) # learnable parameter for dictionary update
+        self._beta = 0.75 # parameter for dictionary update
 
     def forward(self, z_e):
         # permute
         z_e = z_e.permute(0, 2, 3, 1).contiguous()
         ze_shape = z_e.shape
+
         # Flatten input
         z_e = z_e.view(self._embedding_dim, -1)  # convert to column-major order, i.e., each column is a data point
 
