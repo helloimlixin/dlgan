@@ -42,9 +42,9 @@ class DictLearn(nn.Module):
         self._embedding_dim = embedding_dim
         self._commitment_cost = commitment_cost
         self._sparsity_level = sparsity_level
-        self._dictionary = nn.Parameter(torch.randn(self._embedding_dim, self._num_embeddings, device='cuda'))
-        # normalize the dictionary
-        self._dictionary.data /= torch.linalg.norm(self._dictionary, dim=0)
+        # self._dictionary = nn.Parameter(torch.randn(self._embedding_dim, self._num_embeddings, device='cuda'))
+        # # normalize the dictionary
+        # self._dictionary.data /= torch.linalg.norm(self._dictionary, dim=0)
 
         self._col_update = nn.Parameter(torch.zeros(self._embedding_dim, device='cuda'))
 
@@ -65,14 +65,14 @@ class DictLearn(nn.Module):
         """
         Sparse Coding Stage
         """
-
-        # normalize the dictionary
-        # self._dictionary.data = self._dictionary / torch.linalg.norm(self._dictionary, dim=0)
-
         if self._gamma is None:
-            self._gamma = nn.Parameter(torch.zeros((self._num_embeddings, z_e.shape[1]), device='cuda'))
+            # initialize the dictionary with random columns from the data matrix
+            self._dictionary = nn.Parameter(z_e[:, torch.randperm(z_e.shape[1])[:self._num_embeddings]])
+            # normalize the dictionary
+            self._dictionary = nn.Parameter(self._dictionary / torch.linalg.norm(self._dictionary, dim=0))
+            self._gamma = nn.Parameter(self.update_gamma(z_e.detach(), self._dictionary.detach(), debug=False))
         else:
-            self._gamma.data.copy_(nn.Parameter(self.update_gamma(z_e.detach(), self._dictionary.detach(), debug=True)))
+            self._gamma.data.copy_(nn.Parameter(self.update_gamma(z_e.detach(), self._dictionary.detach(), debug=False)))
             # self._gamma.data.copy_(nn.Parameter(Batch_OMP(z_e.detach(), self._dictionary.detach(), self._sparsity_level, debug=True)))
 
         encodings = self._gamma
