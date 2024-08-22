@@ -56,7 +56,7 @@ class DLGAN(nn.Module):
         z = self._encoder(x)
         z = self._pre_vq_conv(z)
         loss, sparsified, latents, perplexity, encodings = self._dl_bottleneck(z)
-        # self._dl_bottleneck.update_dictionary(latents, iters) # update the dictionary
+        self._dl_bottleneck.update_dictionary(latents.detach(), iters) # update the dictionary
         x_recon = self._decoder(sparsified)
 
         return loss, x_recon, latents, perplexity, encodings

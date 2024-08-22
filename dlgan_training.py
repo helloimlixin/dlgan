@@ -51,7 +51,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 8
 test_batch_size = 4
-num_epochs = 10
+num_epochs = 20
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -164,8 +164,8 @@ dlgan = DLGAN(in_channels=3,
 global global_step
 global_step = 0
 if load_pretrained:
-    checkpoint = torch.load(f'./checkpoints/dlgan-{model_tag}/epoch_50.pt')
-    dlgan.load_state_dict(checkpoint['model'])
+    checkpoint = torch.load(f'./checkpoints/dlgan-{model_tag}/epoch_10.pt')
+    dlgan.load_state_dict(checkpoint['model'], strict=False)
     global_step = checkpoint['global_step']
 
 # dlgan_optimizer
