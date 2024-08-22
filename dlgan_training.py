@@ -300,7 +300,7 @@ def train_dlgan(global_step=0):
                     writer.add_images('Train Reconstructed Images', reconstructions, global_step)
 
                 # save the codebook
-                if global_step % 10 == 0:
+                if global_step % log_interval == 0:
                     # create num_embeddings patches from the originals
                     patch_dim = int(np.sqrt(originals.shape[2] * originals.shape[3] * train_batch_size / num_embeddings))
 
