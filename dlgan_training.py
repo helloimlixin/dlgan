@@ -80,7 +80,8 @@ disc_start = 1000000000
 
 validation_interval = 10000000000
 
-load_pretrained = False
+load_pretrained = True
+ckpt = 2
 
 log_interval = 1000
 
@@ -166,7 +167,7 @@ dlgan = DLGAN(in_channels=3,
 global global_step
 global_step = 0
 if load_pretrained:
-    checkpoint = torch.load(f'./checkpoints/dlgan-{model_tag}/epoch_10.pt')
+    checkpoint = torch.load(f'./checkpoints/dlgan-{model_tag}/epoch_{ckpt}.pt')
     dlgan.load_state_dict(checkpoint['model'], strict=False)
     global_step = checkpoint['global_step']
 
@@ -207,7 +208,7 @@ def train_dlgan(global_step=0):
     writer = SummaryWriter(dirpath) # create a writer object for TensorBoard
     torch.autograd.set_detect_anomaly(True)
 
-    for epoch in range(num_epochs):
+    for epoch in range(ckpt, num_epochs):
         with tqdm(range(len(train_loader)), colour='green') as pbar:
             for i, x in zip(pbar, train_loader):
                 global_step = epoch * len(train_loader) + i + 1
@@ -299,7 +300,7 @@ def train_dlgan(global_step=0):
                     writer.add_images('Train Reconstructed Images', reconstructions, global_step)
 
                 # save the codebook
-                if global_step % log_interval == 0:
+                if global_step % 10 == 0:
                     # create num_embeddings patches from the originals
                     patch_dim = int(np.sqrt(originals.shape[2] * originals.shape[3] * train_batch_size / num_embeddings))
 
@@ -307,6 +308,7 @@ def train_dlgan(global_step=0):
 
                     writer.add_embedding(dlgan._dl_bottleneck._dictionary.data.T,
                                          label_img=patches,
+                                         metadata=torch.pca_lowrank(dlgan._dl_bottleneck._dictionary.data.T, q=3)[0],
                                          global_step=global_step)
                     # writer.add_embedding(latents.view(originals.size(0), -1).contiguous(),
                     #                      label_img=originals,
@@ -405,6 +407,9 @@ def train_dlgan(global_step=0):
                         torchvisionutils.save_image(reconstructions_val, f'./results/dlgan-{model_tag}/val_reconstruction_{global_step}.png')
 
                     dlgan.train()
+
+
+                pbar.set_description(f'Epoch: {epoch + 1} ')
 
                 pbar.set_postfix(
                     PSNR=np.mean(train_res_recon_psnr[-100:]),

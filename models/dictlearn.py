@@ -123,9 +123,6 @@ class DictLearn(nn.Module):
         else:
             self._B.data.copy_(nn.Parameter(beta * self._B.data + z_e.mm(self._gamma.detach().t())))
 
-        # choose the column with the largest gradient
-        # j = torch.argmax(-(self._B - self._dictionary @ self._A - self._dictionary * self._A.diag()), dim=1)
-
         # Block-Coordinate Descent
         self._dictionary.data.copy_(nn.Parameter(self._B - self._dictionary @ self._A) / self._A.diag() + self._dictionary)
         self._dictionary.data.copy_(nn.Parameter(self._dictionary / (torch.linalg.norm(self._dictionary, dim=0) + 1e-10)))
