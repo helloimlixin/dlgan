@@ -82,6 +82,8 @@ validation_interval = 10000000000
 
 load_pretrained = False
 
+log_interval = 1000
+
 model_tag = 'odl'
 
 # data_paths loaders
@@ -290,14 +292,14 @@ def train_dlgan(global_step=0):
                 train_res_perplexity.append(perplexity.item())
 
                 # save the reconstructed images
-                if global_step % 100 == 0:
+                if global_step % log_interval == 0:
                     # writer.add_images('Train Low Resolution Images', low_res, i+1)
                     writer.add_images('Train Target Images', originals, global_step)
                     # writer.add_images('Train Input Images', inputs, i+1)
                     writer.add_images('Train Reconstructed Images', reconstructions, global_step)
 
                 # save the codebook
-                if global_step % 100 == 0:
+                if global_step % log_interval == 0:
                     # create num_embeddings patches from the originals
                     patch_dim = int(np.sqrt(originals.shape[2] * originals.shape[3] * train_batch_size / num_embeddings))
 
@@ -311,19 +313,14 @@ def train_dlgan(global_step=0):
                     #                      global_step=global_step)
 
                 # save the gradient visualization
-                if global_step % 100 == 0:
+                if global_step % log_interval == 0:
                     for name, param in dlgan.named_parameters():
                         writer.add_histogram(name, param.clone().cpu().data.numpy(), global_step)
                         if param.grad is not None:
                             writer.add_histogram(name+'/grad', param.grad.clone().cpu().data.numpy(), global_step)
 
-                # save the training information
-                if global_step % 1000 == 0:
-                    np.save('train_res_recon_error.npy', train_res_recon_error)
-                    np.save('train_res_perplexity.npy', train_res_perplexity)
-
                 # create error bars for the training information
-                if global_step % 100 == 0:
+                if global_step % log_interval == 0:
                     writer.add_scalars('Train Recon Error', {'mean': np.mean(train_res_recon_error),
                                                              'std': np.std(train_res_recon_error)}, global_step)
                     writer.add_scalars('Train PSNR', {'mean': np.mean(train_res_recon_psnr),
@@ -338,7 +335,7 @@ def train_dlgan(global_step=0):
                                                             'std': np.std(train_res_perplexity)}, global_step)
 
                 # save the images
-                if global_step % 100 == 0:
+                if global_step % log_interval == 0:
                     torchvisionutils.save_image(originals, f'./results/dlgan-{model_tag}/target_{global_step}.png')
                     torchvisionutils.save_image(reconstructions, f'./results/dlgan-{model_tag}/reconstruction_{global_step}.png')
 
