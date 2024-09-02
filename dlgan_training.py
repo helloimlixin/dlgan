@@ -51,7 +51,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 8
 test_batch_size = 4
-num_epochs = 20
+num_epochs = 100
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -71,7 +71,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 l2_loss_factor = 0.5
 lpips_loss_factor = 1 - l2_loss_factor
 
-sparsity_level = 5 # number of atoms selected
+sparsity_level = 10 # number of atoms selected
 
 epsilon = 1e-10 # a small number to avoid the numerical issues
 
@@ -80,8 +80,14 @@ disc_start = 1000000000
 
 validation_interval = 10000000000
 
-load_pretrained = True
-ckpt = 2
+load_pretrained = False
+ckpt = 0
+ckpt_start = 40
+
+if load_pretrained:
+    ckpt = ckpt_start
+else:
+    ckpt = 0
 
 log_interval = 1000
 
@@ -126,7 +132,7 @@ test_loader = DataLoader(ffhq_dataset_test,
 
 # compute data variance
 data_variance = 0
-sample_size = 100
+sample_size = 10
 for i, x in enumerate(train_loader):
     data_variance += torch.var(x)
     if i == sample_size:
@@ -304,15 +310,20 @@ def train_dlgan(global_step=0):
                     # create num_embeddings patches from the originals
                     patch_dim = int(np.sqrt(originals.shape[2] * originals.shape[3] * train_batch_size / num_embeddings))
 
-                    patches = originals.unfold(1, 3, 3).unfold(2, patch_dim, patch_dim).unfold(3, patch_dim, patch_dim).contiguous().view(-1, 3, patch_dim, patch_dim)
+                    patches = originals.unfold(1, 3, 3).unfold(2, patch_dim, patch_dim).unfold(3, patch_dim, patch_dim).contiguous().view(num_embeddings, 3, patch_dim, patch_dim)
 
                     writer.add_embedding(dlgan._dl_bottleneck._dictionary.data.T,
                                          label_img=patches,
-                                         metadata=torch.pca_lowrank(dlgan._dl_bottleneck._dictionary.data.T, q=3)[0],
                                          global_step=global_step)
                     # writer.add_embedding(latents.view(originals.size(0), -1).contiguous(),
                     #                      label_img=originals,
                     #                      global_step=global_step)
+
+                # cluster dictionary atoms based on the cosine similarity
+                # if global_step % log_interval == 0:
+                #     writer.add_embedding(dlgan._dl_bottleneck._dictionary.data.T,
+                #                          metadata=encodings,
+                #                          global_step=global_step)
 
                 # save the gradient visualization
                 if global_step % log_interval == 0:
@@ -409,7 +420,7 @@ def train_dlgan(global_step=0):
                     dlgan.train()
 
 
-                pbar.set_description(f'Epoch: {epoch + 1} ')
+                pbar.set_description(f'Epoch {epoch + 1} / {num_epochs}: ')
 
                 pbar.set_postfix(
                     PSNR=np.mean(train_res_recon_psnr[-100:]),

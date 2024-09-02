@@ -46,17 +46,15 @@ class DictLearn(nn.Module):
         # # normalize the dictionary
         # self._dictionary.data /= torch.linalg.norm(self._dictionary, dim=0)
 
-        self._col_update = nn.Parameter(torch.zeros(self._embedding_dim, device='cuda'))
-
         self._gamma = None
         self._A = None
         self._B = None
 
-        self._beta = 0.75 # parameter for dictionary update
+        self._beta = .75 # parameter for dictionary update
 
     def forward(self, z_e):
         # permute
-        z_e = z_e.permute(0, 2, 3, 1).contiguous()
+        z_e = z_e.permute(0, 2, 3, 1).contiguous() # convert from bchw to bhwc
         ze_shape = z_e.shape
 
         # Flatten input
@@ -68,20 +66,22 @@ class DictLearn(nn.Module):
         if self._gamma is None:
             # initialize the dictionary with random columns from the data matrix
             self._dictionary = nn.Parameter(z_e[:, torch.randperm(z_e.shape[1])[:self._num_embeddings]])
+            # print(self._dictionary.shape)
             # normalize the dictionary
             self._dictionary = nn.Parameter(self._dictionary / torch.linalg.norm(self._dictionary, dim=0))
             self._gamma = nn.Parameter(self.update_gamma(z_e.detach(), self._dictionary.detach(), debug=False))
         else:
+            self._dictionary.data.copy_(nn.Parameter(self._dictionary / torch.linalg.norm(self._dictionary, dim=0)))
             self._gamma.data.copy_(nn.Parameter(self.update_gamma(z_e.detach(), self._dictionary.detach(), debug=False)))
             # self._gamma.data.copy_(nn.Parameter(Batch_OMP(z_e.detach(), self._dictionary.detach(), self._sparsity_level, debug=True)))
 
         encodings = self._gamma
 
-        # compute reconstruction
-        recon = self._dictionary @ self._gamma
+        # compute reconstruction and fold back
+        recon = self._dictionary @ self._gamma.detach()
 
         e_latent_loss = F.mse_loss(recon.detach(), z_e)  # latent loss from encoder
-        loss = e_latent_loss * self._commitment_cost
+        loss = e_latent_loss * self._commitment_cost + self._beta * F.mse_loss(recon, z_e.detach())  # total loss
 
         # straight-through gradient estimator
         recon = z_e + (recon - z_e).detach()
@@ -123,9 +123,13 @@ class DictLearn(nn.Module):
         else:
             self._B.data.copy_(nn.Parameter(beta * self._B.data + z_e.mm(self._gamma.detach().t())))
 
-        # Block-Coordinate Descent
-        self._dictionary.data.copy_(nn.Parameter(self._B - self._dictionary @ self._A) / self._A.diag() + self._dictionary)
-        self._dictionary.data.copy_(nn.Parameter(self._dictionary / (torch.linalg.norm(self._dictionary, dim=0) + 1e-10)))
+        # Block-Coordinate Descent (randomly select a ratio of the atoms)
+        ratio = 0.1
+        atom_indices = torch.randperm(self._num_embeddings)[:int(self._num_embeddings * ratio)]
+        for j in atom_indices:
+            # compute the j-th atom
+            self._dictionary[:, j].data.copy_(nn.Parameter((self._B[:, j] - self._dictionary @ self._A[:, j]) / self._A[j, j] + self._dictionary[:, j]))
+            self._dictionary.data.copy_(nn.Parameter(self._dictionary / torch.linalg.norm(self._dictionary, dim=0)))
 
     def update_gamma(self, signals, dictionary, debug=False):
         """sparse coding stage

@@ -39,16 +39,16 @@ import shutil
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 4
+train_batch_size = 8
 test_batch_size = 4
-num_epochs = 20
+num_epochs = 100
 
 num_hiddens = 128
-num_residual_hiddens = 4
+num_residual_hiddens = 32
 num_residual_layers = 2
 
-embedding_dim = 32
-num_embeddings = 128
+embedding_dim = 64
+num_embeddings = 512
 
 commitment_cost = 0.25
 
@@ -66,7 +66,7 @@ l2_loss_factor = 0.5
 lpips_loss_factor = 1 - l2_loss_factor
 
 discriminator_factor = 0.01
-disc_start = 80000
+disc_start = 80000000000
 
 validation_interval = 1000
 
@@ -139,6 +139,7 @@ def loss_function(recon_x, x):
 def train_vqgan(global_step=0):
     '''Train the vqgan.'''
     train_res_recon_error = []
+    train_res_vq_loss = []
     train_res_recon_psnr = []
     train_res_recon_ssim = []
     train_res_recon_flip = []
@@ -226,6 +227,7 @@ def train_vqgan(global_step=0):
 
                 # save training information for plotting
                 train_res_recon_error.append(recon_error.item())
+                train_res_vq_loss.append(vq_loss.item())
                 train_res_recon_psnr.append(psnr.item())
                 train_res_recon_ssim.append(ssim_val.item())
                 train_res_recon_lpips.append(perceptual_loss.item())
@@ -334,19 +336,24 @@ def train_vqgan(global_step=0):
 
                     vqgan.train()
 
+                pbar.set_description(f'Epoch {epoch + 1} / {num_epochs}: ')
+
                 pbar.set_postfix(
-                    # Recon_Error=np.round(recon_error.cpu().detach().numpy().item(), 3),
-                    PSNR=np.round(psnr.cpu().detach().numpy().item(), 3),
-                    Perceptual_Loss=np.round(perceptual_loss.cpu().detach().numpy().item(), 3),
-                    # SSIM=np.round(ssim_val.item(), 3),
-                    FLIP=np.round(flip_loss.item(), 3),
-                    VQ_Loss=np.round(vq_loss.cpu().detach().numpy().item(), 3),
-                    Perplexity=np.round(perplexity.cpu().detach().numpy().item(), 3),
-                    # Loss=np.round(loss.cpu().detach().numpy().item(), 3),
-                    GAN_Loss=np.round(gan_loss.cpu().detach().numpy().item(), 3),
+                    PSNR=np.mean(train_res_recon_psnr[-100:]),
+                    VQ_Loss=np.mean(train_res_vq_loss[-100:]),
+                    LPIPS=np.mean(train_res_recon_lpips[-100:]),
+                    SSIM=np.mean(train_res_recon_ssim[-100:]),
+                    FLIP=np.mean(train_res_recon_flip[-100:]),
+                    Perplexity=np.mean(train_res_perplexity[-100:]),
                     global_step=global_step
                 )
                 pbar.update(0)
+
+            # save the model
+            # create the checkpoints directory if it does not exist
+            if not os.path.exists('./checkpoints/vqgan-ema'):
+                os.makedirs('./checkpoints/vqgan-ema')
+
             torch.save({"model": vqgan.state_dict(),
                         "global_step": global_step}, f'./checkpoints/vqgan-ema/epoch_{(epoch + 1)}.pt')
 
