@@ -42,6 +42,8 @@ import shutil
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
+import sys
+
 # set the manual seed for reproducibility
 torch.manual_seed(0)
 
@@ -51,7 +53,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 8
 test_batch_size = 4
-num_epochs = 100
+num_epochs = 10
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -78,7 +80,9 @@ epsilon = 1e-10 # a small number to avoid the numerical issues
 discriminator_factor = 0.01
 disc_start = 1000000000
 
-validation_interval = 10000000000
+validation_on = False
+
+validation_interval = 1000 if validation_on else sys.maxsize
 
 load_pretrained = False
 ckpt = 0

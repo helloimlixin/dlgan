@@ -35,13 +35,15 @@ import os
 from pathlib import Path
 import shutil
 
+import sys
+
 # fix the bug of "OMP: Error #15: Initializing libiomp5.dylib, but found libiomp5.dylib already initialized."
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
 train_batch_size = 8
 test_batch_size = 4
-num_epochs = 100
+num_epochs = 10
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -52,7 +54,12 @@ num_embeddings = 512
 
 commitment_cost = 0.25
 
-decay = 0.99
+decay = 0.
+
+model_tag = 'vanilla'
+
+if decay > 0.:
+    model_tag = 'ema'
 
 learning_rate = 1e-4
 
@@ -68,7 +75,9 @@ lpips_loss_factor = 1 - l2_loss_factor
 discriminator_factor = 0.01
 disc_start = 80000000000
 
-validation_interval = 1000
+validation_on = False
+
+validation_interval = 1000 if validation_on else sys.maxsize
 
 load_pretrained = False
 
@@ -118,7 +127,7 @@ vqgan = VQGAN(in_channels=3,
 global global_step
 global_step = 0
 if load_pretrained:
-    checkpoint = torch.load(f'./checkpoints/vqgan-ema/epoch_2.pt')
+    checkpoint = torch.load(f'./checkpoints/vqgan-{model_tag}/epoch_2.pt')
     vqgan.load_state_dict(checkpoint['model'])
     global_step = checkpoint['global_step']
 
@@ -152,7 +161,7 @@ def train_vqgan(global_step=0):
     vqgan.train() # set the vqgan to training mode
 
     # set up tensorboard directory
-    dirpath = Path(f'./runs/vqgan-ema')
+    dirpath = Path(f'./runs/vqgan-{model_tag}')
     if dirpath.exists() and dirpath.is_dir():
         shutil.rmtree(dirpath)
 
@@ -260,10 +269,14 @@ def train_vqgan(global_step=0):
                     np.save('train_res_perplexity.npy', train_res_perplexity)
 
                 # save the images
+                # create the results directory if it does not exist
+                if not os.path.exists('./results/vqgan-{model_tag}'):
+                    os.makedirs('./results/vqgan-{model_tag}')
+
                 if global_step % 1000 == 0:
-                    torchvisionutils.save_image(originals, f'./results/vqgan-ema/target_{global_step}.png')
+                    torchvisionutils.save_image(originals, f'./results/vqgan-{model_tag}/target_{global_step}.png')
                     torchvisionutils.save_image(reconstructions,
-                                                f'./results/vqgan-ema/reconstruction_{global_step}.png')
+                                                f'./results/vqgan-{model_tag}/reconstruction_{global_step}.png')
 
                 # perform the validation
                 if global_step % validation_interval == 0:
@@ -330,9 +343,9 @@ def train_vqgan(global_step=0):
 
                         # save the images
                         torchvisionutils.save_image(originals_val,
-                                                    f'./results/vqgan-ema/val_target_{global_step}.png')
+                                                    f'./results/vqgan-{model_tag}/val_target_{global_step}.png')
                         torchvisionutils.save_image(reconstructions_val,
-                                                    f'./results/vqgan-ema/val_reconstruction_{global_step}.png')
+                                                    f'./results/vqgan-{model_tag}/val_reconstruction_{global_step}.png')
 
                     vqgan.train()
 
@@ -351,11 +364,11 @@ def train_vqgan(global_step=0):
 
             # save the model
             # create the checkpoints directory if it does not exist
-            if not os.path.exists('./checkpoints/vqgan-ema'):
-                os.makedirs('./checkpoints/vqgan-ema')
+            if not os.path.exists('./checkpoints/vqgan-{model_tag}'):
+                os.makedirs('./checkpoints/vqgan-{model_tag}')
 
             torch.save({"model": vqgan.state_dict(),
-                        "global_step": global_step}, f'./checkpoints/vqgan-ema/epoch_{(epoch + 1)}.pt')
+                        "global_step": global_step}, f'./checkpoints/vqgan-{model_tag}/epoch_{(epoch + 1)}.pt')
 
     writer.close()
 

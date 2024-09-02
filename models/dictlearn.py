@@ -42,9 +42,9 @@ class DictLearn(nn.Module):
         self._embedding_dim = embedding_dim
         self._commitment_cost = commitment_cost
         self._sparsity_level = sparsity_level
-        # self._dictionary = nn.Parameter(torch.randn(self._embedding_dim, self._num_embeddings, device='cuda'))
-        # # normalize the dictionary
-        # self._dictionary.data /= torch.linalg.norm(self._dictionary, dim=0)
+        self._dictionary = nn.Parameter(torch.randn(self._embedding_dim, self._num_embeddings, device='cuda'))
+        # normalize the dictionary
+        self._dictionary.data.copy_(nn.Parameter(self._dictionary / torch.linalg.norm(self._dictionary, dim=0)))
 
         self._gamma = None
         self._A = None
@@ -65,10 +65,10 @@ class DictLearn(nn.Module):
         """
         if self._gamma is None:
             # initialize the dictionary with random columns from the data matrix
-            self._dictionary = nn.Parameter(z_e[:, torch.randperm(z_e.shape[1])[:self._num_embeddings]])
+            # self._dictionary = nn.Parameter(z_e[:, torch.randperm(z_e.shape[1])[:self._num_embeddings]])
             # print(self._dictionary.shape)
             # normalize the dictionary
-            self._dictionary = nn.Parameter(self._dictionary / torch.linalg.norm(self._dictionary, dim=0))
+            # self._dictionary = nn.Parameter(self._dictionary / torch.linalg.norm(self._dictionary, dim=0))
             self._gamma = nn.Parameter(self.update_gamma(z_e.detach(), self._dictionary.detach(), debug=False))
         else:
             self._dictionary.data.copy_(nn.Parameter(self._dictionary / torch.linalg.norm(self._dictionary, dim=0)))
@@ -81,7 +81,7 @@ class DictLearn(nn.Module):
         recon = self._dictionary @ self._gamma.detach()
 
         e_latent_loss = F.mse_loss(recon.detach(), z_e)  # latent loss from encoder
-        loss = e_latent_loss * self._commitment_cost + self._beta * F.mse_loss(recon, z_e.detach())  # total loss
+        loss = e_latent_loss * self._commitment_cost + (self._beta / z_e.shape[1]) * F.mse_loss(recon, z_e.detach())  # total loss
 
         # straight-through gradient estimator
         recon = z_e + (recon - z_e).detach()
