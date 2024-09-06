@@ -43,7 +43,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 8
 test_batch_size = 4
-num_epochs = 10
+num_epochs = 50
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -79,7 +79,9 @@ validation_on = False
 
 validation_interval = 1000 if validation_on else sys.maxsize
 
-load_pretrained = False
+load_pretrained = True
+
+ckpt = 19
 
 # data_paths loaders
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
@@ -127,7 +129,7 @@ vqgan = VQGAN(in_channels=3,
 global global_step
 global_step = 0
 if load_pretrained:
-    checkpoint = torch.load(f'./checkpoints/vqgan-{model_tag}/epoch_2.pt')
+    checkpoint = torch.load(f'./checkpoints/vqgan-{model_tag}/epoch_{ckpt}.pt')
     vqgan.load_state_dict(checkpoint['model'])
     global_step = checkpoint['global_step']
 
@@ -167,7 +169,7 @@ def train_vqgan(global_step=0):
 
     writer = SummaryWriter(dirpath) # create a writer object for TensorBoard
 
-    for epoch in range(num_epochs):
+    for epoch in range(ckpt, num_epochs):
         with tqdm(range(len(train_loader)), colour='green') as pbar:
             for i, x in zip(pbar, train_loader):
                 global_step = epoch * len(train_loader) + i + 1

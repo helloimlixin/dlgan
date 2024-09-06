@@ -53,12 +53,22 @@ class DictLearn(nn.Module):
         self._beta = .75 # parameter for dictionary update
 
     def forward(self, z_e):
+        kernel_size = 16
+        stride = 16
+        # break the input tensor into patches
+        patches = F.unfold(z_e, kernel_size=kernel_size, stride=stride).permute(2, 0, 1).contiguous()
+        patches_shape = patches.shape
+        patches = patches.view(patches.shape[0] * patches.shape[1], self._embedding_dim, kernel_size, kernel_size).contiguous()
+
         # permute
         z_e = z_e.permute(0, 2, 3, 1).contiguous() # convert from bchw to bhwc
         ze_shape = z_e.shape
 
         # Flatten input
-        z_e = z_e.view(self._embedding_dim, -1)  # convert to column-major order, i.e., each column is a data point
+        z_e_flattened = z_e.view(self._embedding_dim, -1)  # convert to column-major order, i.e., each column is a data point
+
+        # Flatten patches
+        patches = patches.view(self._embedding_dim, -1)  # convert to column-major order, i.e., each column is a data point
 
         """
         Sparse Coding Stage
@@ -69,17 +79,22 @@ class DictLearn(nn.Module):
             # print(self._dictionary.shape)
             # normalize the dictionary
             # self._dictionary = nn.Parameter(self._dictionary / torch.linalg.norm(self._dictionary, dim=0))
-            self._gamma = nn.Parameter(self.update_gamma(z_e.detach(), self._dictionary.detach(), debug=False))
+            self._gamma = nn.Parameter(self.update_gamma(patches.detach(), self._dictionary.detach(), debug=False))
         else:
             self._dictionary.data.copy_(nn.Parameter(self._dictionary / torch.linalg.norm(self._dictionary, dim=0)))
-            self._gamma.data.copy_(nn.Parameter(self.update_gamma(z_e.detach(), self._dictionary.detach(), debug=False)))
+            self._gamma.data.copy_(nn.Parameter(self.update_gamma(patches.detach(), self._dictionary.detach(), debug=False)))
             # self._gamma.data.copy_(nn.Parameter(Batch_OMP(z_e.detach(), self._dictionary.detach(), self._sparsity_level, debug=True)))
 
         encodings = self._gamma
 
         # compute reconstruction and fold back
         recon = self._dictionary @ self._gamma.detach()
+        recon = recon.view(patches_shape).permute(1, 2, 0).contiguous() # convert to patches
 
+        # fold back the patches
+        recon = F.fold(recon, (ze_shape[1], ze_shape[2]), kernel_size=kernel_size, stride=stride).permute(0, 2, 3, 1).contiguous()
+
+        # compute loss
         e_latent_loss = F.mse_loss(recon.detach(), z_e)  # latent loss from encoder
         loss = e_latent_loss * self._commitment_cost + (self._beta / z_e.shape[1]) * F.mse_loss(recon, z_e.detach())  # total loss
 
