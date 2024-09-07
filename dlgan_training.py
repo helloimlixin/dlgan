@@ -29,6 +29,7 @@ from dataloaders.flowers import FlowersDataset
 from dataloaders.ffhq import FFHQDataset
 from tqdm import tqdm
 
+from flip.python.data import *
 from models.dlgan import DLGAN
 from models.lpips import LPIPS
 from skimage.metrics import structural_similarity as ssim
@@ -52,14 +53,14 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
 train_batch_size = 8
-test_batch_size = 4
-num_epochs = 10
+val_batch_size = 4
+num_epochs = 20
 
 num_hiddens = 128
 num_residual_hiddens = 32
 num_residual_layers = 2
 
-embedding_dim = 64
+embedding_dim = 16
 num_embeddings = 512
 
 commitment_cost = 0.25
@@ -73,27 +74,27 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 l2_loss_factor = 0.5
 lpips_loss_factor = 1 - l2_loss_factor
 
-sparsity_level = 10 # number of atoms selected
+sparsity_level = 5 # number of atoms selected
 
 epsilon = 1e-10 # a small number to avoid the numerical issues
 
 discriminator_factor = 0.01
 disc_start = 1000000000
 
-validation_on = False
+validation_on = True
 
 validation_interval = 1000 if validation_on else sys.maxsize
 
-load_pretrained = False
+load_pretrained = True
 ckpt = 0
-ckpt_start = 40
+ckpt_start = 12
 
 if load_pretrained:
     ckpt = ckpt_start
 else:
     ckpt = 0
 
-log_interval = 1000
+log_interval = 100
 
 model_tag = 'odl'
 
@@ -101,30 +102,28 @@ model_tag = 'odl'
 # flowers_dataset = FlowersDataset(root='./data/flowers')
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
-ffhq_dataset = FFHQDataset(root='./data/ffhq')
 
-# train, val, test split
-train_size = int(0.999 * len(ffhq_dataset))
-val_size = int(0.0008 * len(ffhq_dataset))
-test_size = len(ffhq_dataset) - train_size - val_size
-ffhq_dataset_train, ffhq_dataset_val, ffhq_dataset_test = torch.utils.data.random_split(ffhq_dataset, [train_size, val_size, test_size])
+# define the training, validation, and test datasets
+ffhq_dataset_train = FFHQDataset(root='./data/ffhq-512x512/train')
+ffhq_dataset_val = FFHQDataset(root='./data/ffhq-512x512/val', crop_size=512)
+ffhq_dataset_test = FFHQDataset(root='./data/ffhq-512x512/test', crop_size=512)
 
 train_loader = DataLoader(ffhq_dataset_train,
                           batch_size=train_batch_size,
-                          shuffle=False,
+                          shuffle=True,
                           pin_memory=False,
                           drop_last=True,
                           num_workers=0)
 
 val_loader = DataLoader(ffhq_dataset_val,
-                        batch_size=test_batch_size,
+                        batch_size=val_batch_size,
                         shuffle=False,
                         pin_memory=True,
                         drop_last=True,
                         num_workers=0)
 
 test_loader = DataLoader(ffhq_dataset_test,
-                         batch_size=test_batch_size,
+                         batch_size=val_batch_size,
                          shuffle=False,
                          pin_memory=True,
                          drop_last=True,
@@ -152,13 +151,13 @@ data_variance /= sample_size
 #                           num_workers=0)
 #
 # val_loader = DataLoader(flowers_dataset_val,
-#                         batch_size=test_batch_size,
+#                         batch_size=val_batch_size,
 #                         shuffle=False,
 #                         pin_memory=True,
 #                         num_workers=0)
 #
 # test_loader = DataLoader(flowers_dataset_test,
-#                         batch_size=test_batch_size,
+#                         batch_size=val_batch_size,
 #                         shuffle=False,
 #                         pin_memory=True,
 #                         num_workers=0)
@@ -371,18 +370,18 @@ def train_dlgan(global_step=0):
                         x_val = x_val.to(device)
 
                         # forward pass
-                        dl_loss_val, data_recon_val, perplexity_val, representation_val = dlgan(x_val, global_step)
-                        perceptual_loss_val = perceptual_loss_criterion(data_recon_val, x_val).mean()
+                        dl_loss_val, x_recon_val, latents_val, perplexity_val, encodings_val = dlgan(x_val, global_step)
+                        perceptual_loss_val = perceptual_loss_criterion(x_recon_val, x_val).mean()
 
-                        recon_error_val = l2_loss_factor * loss_function(data_recon_val, x_val) + lpips_loss_factor * perceptual_loss_val
+                        recon_error_val = l2_loss_factor * loss_function(x_recon_val, x_val) + lpips_loss_factor * perceptual_loss_val
 
                         # compute the NVIDIA FLIP metric
-                        flip_val = flip_loss_criterion(data_recon_val, x_val)
+                        flip_val = flip_loss_criterion(x_recon_val, x_val)
 
                         originals_val = x_val + 0.5
-                        reconstructions_val = data_recon_val + 0.5
+                        reconstructions_val = x_recon_val + 0.5
 
-                        psnr_val = 10 * torch.log10(1 / loss_function(data_recon_val, x_val))
+                        psnr_val = 10 * torch.log10(1 / loss_function(x_recon_val, x_val))
 
                         x_val_np = x_val.cpu().detach().numpy()
                         reconstructions_val_np = reconstructions_val.cpu().detach().numpy()
@@ -404,10 +403,6 @@ def train_dlgan(global_step=0):
                         writer.add_images('Val Target Images', originals_val, global_step)
                         writer.add_images('Val Reconstructed Images', reconstructions_val, global_step)
 
-                        # save the real and fake images
-                        real_fake_images = torch.cat((originals_val, reconstructions_val))
-                        writer.add_images('Val Real and Fake Images', real_fake_images, global_step)
-
                         # save the validation information
                         writer.add_scalar('Val Recon Error', recon_error_val.item(), global_step)
                         writer.add_scalar('Val PSNR', psnr_val.item(), global_step)
@@ -420,7 +415,6 @@ def train_dlgan(global_step=0):
                         # save the images
                         torchvisionutils.save_image(originals_val, f'./results/dlgan-{model_tag}/val_target_{global_step}.png')
                         torchvisionutils.save_image(reconstructions_val, f'./results/dlgan-{model_tag}/val_reconstruction_{global_step}.png')
-
                     dlgan.train()
 
 

@@ -90,7 +90,7 @@ ckpt = 19
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
 # test_loader = get_cifar10_test_loader(batch_size=test_batch_size)()
 
-ffhq_dataset = FFHQDataset(root='./data/ffhq')
+ffhq_dataset = FFHQDataset(root='./data/ffhq-512x512')
 
 # train, val, test split
 train_size = int(0.999 * len(ffhq_dataset))

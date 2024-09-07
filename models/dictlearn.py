@@ -82,7 +82,7 @@ class DictLearn(nn.Module):
             self._gamma = nn.Parameter(self.update_gamma(patches.detach(), self._dictionary.detach(), debug=False))
         else:
             self._dictionary.data.copy_(nn.Parameter(self._dictionary / torch.linalg.norm(self._dictionary, dim=0)))
-            self._gamma.data.copy_(nn.Parameter(self.update_gamma(patches.detach(), self._dictionary.detach(), debug=False)))
+            self._gamma = nn.Parameter(self.update_gamma(patches.detach(), self._dictionary.detach(), debug=False))
             # self._gamma.data.copy_(nn.Parameter(Batch_OMP(z_e.detach(), self._dictionary.detach(), self._sparsity_level, debug=True)))
 
         encodings = self._gamma
