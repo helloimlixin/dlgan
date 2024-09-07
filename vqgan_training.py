@@ -108,19 +108,22 @@ train_loader = DataLoader(ffhq_dataset_train,
                           batch_size=train_batch_size,
                           shuffle=True,
                           pin_memory=False,
+                          drop_last=True,
                           num_workers=0)
 
 val_loader = DataLoader(ffhq_dataset_val,
                         batch_size=test_batch_size,
                         shuffle=False,
                         pin_memory=True,
+                        drop_last=True,
                         num_workers=0)
 
 test_loader = DataLoader(ffhq_dataset_test,
-                            batch_size=test_batch_size,
-                            shuffle=False,
-                            pin_memory=True,
-                            num_workers=0)
+                         batch_size=test_batch_size,
+                         shuffle=False,
+                         pin_memory=True,
+                         drop_last=True,
+                         num_workers=0)
 
 # vqgan
 vqgan = VQGAN(in_channels=3,
