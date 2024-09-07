@@ -43,7 +43,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 8
 test_batch_size = 4
-num_epochs = 50
+num_epochs = 20
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -54,7 +54,7 @@ num_embeddings = 512
 
 commitment_cost = 0.25
 
-decay = 0.
+decay = 0.99
 
 model_tag = 'vanilla'
 
@@ -75,13 +75,22 @@ lpips_loss_factor = 1 - l2_loss_factor
 discriminator_factor = 0.01
 disc_start = 80000000000
 
-validation_on = False
+validation_on = True
 
 validation_interval = 1000 if validation_on else sys.maxsize
 
-load_pretrained = True
+load_pretrained = False
 
-ckpt = 19
+ckpt = 0
+
+ckpt_start = 12
+
+if load_pretrained:
+    ckpt = ckpt_start
+else:
+    ckpt = 0
+
+log_interval = 100
 
 # data_paths loaders
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
@@ -90,13 +99,10 @@ ckpt = 19
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
 # test_loader = get_cifar10_test_loader(batch_size=test_batch_size)()
 
-ffhq_dataset = FFHQDataset(root='./data/ffhq-512x512')
-
-# train, val, test split
-train_size = int(0.999 * len(ffhq_dataset))
-val_size = int(0.0008 * len(ffhq_dataset))
-test_size = len(ffhq_dataset) - train_size - val_size
-ffhq_dataset_train, ffhq_dataset_val, ffhq_dataset_test = torch.utils.data.random_split(ffhq_dataset, [train_size, val_size, test_size])
+# define the training, validation, and test datasets
+ffhq_dataset_train = FFHQDataset(root='./data/ffhq-512x512/train')
+ffhq_dataset_val = FFHQDataset(root='./data/ffhq-512x512/val', crop_size=512)
+ffhq_dataset_test = FFHQDataset(root='./data/ffhq-512x512/test', crop_size=512)
 
 train_loader = DataLoader(ffhq_dataset_train,
                           batch_size=train_batch_size,
@@ -246,27 +252,27 @@ def train_vqgan(global_step=0):
                 train_res_perplexity.append(perplexity.item())
 
                 # save the reconstructed images
-                if global_step % 1000 == 0:
+                if global_step % log_interval == 0:
                     # writer.add_images('Train Low Resolution Images', low_res, i+1)
                     writer.add_images('Train Target Images', originals, global_step)
                     # writer.add_images('Train Input Images', inputs, i+1)
                     writer.add_images('Train Reconstructed Images', reconstructions, global_step)
 
                 # save the codebook
-                if global_step % 1000 == 0:
+                if global_step % log_interval == 0:
                     writer.add_embedding(quantized.view(train_batch_size, -1),
                                          label_img=originals,
                                          global_step=global_step)
 
                 # save the gradient visualization
-                if global_step % 1000 == 0:
+                if global_step % log_interval == 0:
                     for name, param in vqgan.named_parameters():
                         writer.add_histogram(name, param.clone().cpu().data.numpy(), global_step)
                         if param.grad is not None:
                             writer.add_histogram(name + '/grad', param.grad.clone().cpu().data.numpy(), global_step)
 
                 # save the training information
-                if global_step % 10000 == 0:
+                if global_step % log_interval0 == 0:
                     np.save('train_res_recon_error.npy', train_res_recon_error)
                     np.save('train_res_perplexity.npy', train_res_perplexity)
 
@@ -275,7 +281,7 @@ def train_vqgan(global_step=0):
                 if not os.path.exists('./results/vqgan-{model_tag}'):
                     os.makedirs('./results/vqgan-{model_tag}')
 
-                if global_step % 1000 == 0:
+                if global_step % log_interval == 0:
                     torchvisionutils.save_image(originals, f'./results/vqgan-{model_tag}/target_{global_step}.png')
                     torchvisionutils.save_image(reconstructions,
                                                 f'./results/vqgan-{model_tag}/reconstruction_{global_step}.png')
