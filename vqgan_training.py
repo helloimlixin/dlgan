@@ -271,11 +271,6 @@ def train_vqgan(global_step=0):
                         if param.grad is not None:
                             writer.add_histogram(name + '/grad', param.grad.clone().cpu().data.numpy(), global_step)
 
-                # save the training information
-                if global_step % log_interval0 == 0:
-                    np.save('train_res_recon_error.npy', train_res_recon_error)
-                    np.save('train_res_perplexity.npy', train_res_perplexity)
-
                 # save the images
                 # create the results directory if it does not exist
                 if not os.path.exists('./results/vqgan-{model_tag}'):
@@ -335,10 +330,6 @@ def train_vqgan(global_step=0):
                         # save the reconstructed images
                         writer.add_images('Val Target Images', originals_val, global_step)
                         writer.add_images('Val Reconstructed Images', reconstructions_val, global_step)
-
-                        # save the real and fake images
-                        real_fake_images = torch.cat((originals_val, reconstructions_val))
-                        writer.add_images('Val Real and Fake Images', real_fake_images, global_step)
 
                         # save the validation information
                         writer.add_scalar('Val Recon Error', recon_error_val.item(), global_step)
