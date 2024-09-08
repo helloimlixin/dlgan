@@ -17,6 +17,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import kernel32
 
 
 class DictLearn(nn.Module):
@@ -53,8 +54,13 @@ class DictLearn(nn.Module):
         self._beta = .75 # parameter for dictionary update
 
     def forward(self, z_e):
-        kernel_size = 16
-        stride = 16
+        if z_e.shape[2] * z_e.shape[3] < self._num_embeddings:
+            kernel_size = z_e.shape[2]
+        else:
+            kernel_size = 16
+
+        stride = kernel_size # non-overlapping patches
+
         # break the input tensor into patches
         patches = F.unfold(z_e, kernel_size=kernel_size, stride=stride).permute(2, 0, 1).contiguous()
         patches_shape = patches.shape

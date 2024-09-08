@@ -24,7 +24,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import utils as torchvisionutils
 from torchvision import transforms
 
-from dataloaders.cifar10 import get_cifar10_train_loader
+from dataloaders.cifar10 import *
 from dataloaders.flowers import FlowersDataset
 from dataloaders.ffhq import FFHQDataset
 from tqdm import tqdm
@@ -52,9 +52,9 @@ torch.manual_seed(0)
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 8
-val_batch_size = 4
-num_epochs = 20
+train_batch_size = 64
+val_batch_size = 16
+num_epochs = 50
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -85,9 +85,9 @@ validation_on = True
 
 validation_interval = 1000 if validation_on else sys.maxsize
 
-load_pretrained = True
+load_pretrained = False
 ckpt = 0
-ckpt_start = 12
+ckpt_start = 20
 
 if load_pretrained:
     ckpt = ckpt_start
@@ -96,52 +96,53 @@ else:
 
 log_interval = 100
 
-model_tag = 'odl'
+model_tag = 'odl-cifar10'
 
 # data_paths loaders
 # flowers_dataset = FlowersDataset(root='./data/flowers')
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
-# train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
+train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
+val_loader = get_cifar10_test_loader(batch_size=val_batch_size)()
 
 # define the training, validation, and test datasets
-ffhq_dataset_train = FFHQDataset(root='./data/ffhq-512x512/train')
-ffhq_dataset_val = FFHQDataset(root='./data/ffhq-512x512/val', crop_size=512)
-ffhq_dataset_test = FFHQDataset(root='./data/ffhq-512x512/test', crop_size=512)
-
-train_loader = DataLoader(ffhq_dataset_train,
-                          batch_size=train_batch_size,
-                          shuffle=True,
-                          pin_memory=False,
-                          drop_last=True,
-                          num_workers=0)
-
-val_loader = DataLoader(ffhq_dataset_val,
-                        batch_size=val_batch_size,
-                        shuffle=False,
-                        pin_memory=True,
-                        drop_last=True,
-                        num_workers=0)
-
-test_loader = DataLoader(ffhq_dataset_test,
-                         batch_size=val_batch_size,
-                         shuffle=False,
-                         pin_memory=True,
-                         drop_last=True,
-                         num_workers=0)
+# ffhq_dataset_train = FFHQDataset(root='./data/ffhq-512x512/train')
+# ffhq_dataset_val = FFHQDataset(root='./data/ffhq-512x512/val', crop_size=512)
+# ffhq_dataset_test = FFHQDataset(root='./data/ffhq-512x512/test', crop_size=512)
+#
+# train_loader = DataLoader(ffhq_dataset_train,
+#                           batch_size=train_batch_size,
+#                           shuffle=True,
+#                           pin_memory=False,
+#                           drop_last=True,
+#                           num_workers=0)
+#
+# val_loader = DataLoader(ffhq_dataset_val,
+#                         batch_size=val_batch_size,
+#                         shuffle=False,
+#                         pin_memory=True,
+#                         drop_last=True,
+#                         num_workers=0)
+#
+# test_loader = DataLoader(ffhq_dataset_test,
+#                          batch_size=val_batch_size,
+#                          shuffle=False,
+#                          pin_memory=True,
+#                          drop_last=True,
+#                          num_workers=0)
 
 # train_size = int(0.999 * len(flowers_dataset))
 # val_size = int(0.0008 * len(flowers_dataset))
 # test_size = len(flowers_dataset) - train_size - val_size
 
 # compute data variance
-data_variance = 0
-sample_size = 10
-for i, x in enumerate(train_loader):
-    data_variance += torch.var(x)
-    if i == sample_size:
-        break
+# data_variance = 0
+# sample_size = 10
+# for i, x in enumerate(train_loader):
+#     data_variance += torch.var(x)
+#     if i == sample_size:
+#         break
 
-data_variance /= sample_size
+# data_variance /= sample_size
 # flowers_dataset_train, flowers_dataset_val, flowers_dataset_test = torch.utils.data.random_split(flowers_dataset, [train_size, val_size, test_size])
 #
 # train_loader = DataLoader(flowers_dataset_train,
@@ -223,11 +224,11 @@ def train_dlgan(global_step=0):
                 global_step = epoch * len(train_loader) + i + 1
 
                 # sample the mini-batch
-                x = x.to(device)
+                # x = x.to(device)
 
                 # for cifar10 loader
-                # (x, _) = next(iter(train_loader))
-                # x = x.to(device)
+                (x, _) = next(iter(train_loader))
+                x = x.to(device)
 
                 # forward pass
                 # x_lr = F.interpolate(x, scale_factor=0.25, mode='bilinear', align_corners=False)
@@ -310,23 +311,8 @@ def train_dlgan(global_step=0):
 
                 # save the codebook
                 if global_step % log_interval == 0:
-                    # create num_embeddings patches from the originals
-                    patch_dim = int(np.sqrt(originals.shape[2] * originals.shape[3] * train_batch_size / num_embeddings))
-
-                    patches = originals.unfold(1, 3, 3).unfold(2, patch_dim, patch_dim).unfold(3, patch_dim, patch_dim).contiguous().view(num_embeddings, 3, patch_dim, patch_dim)
-
                     writer.add_embedding(dlgan._dl_bottleneck._dictionary.data.T,
-                                         label_img=patches,
                                          global_step=global_step)
-                    # writer.add_embedding(latents.view(originals.size(0), -1).contiguous(),
-                    #                      label_img=originals,
-                    #                      global_step=global_step)
-
-                # cluster dictionary atoms based on the cosine similarity
-                # if global_step % log_interval == 0:
-                #     writer.add_embedding(dlgan._dl_bottleneck._dictionary.data.T,
-                #                          metadata=encodings,
-                #                          global_step=global_step)
 
                 # save the gradient visualization
                 if global_step % log_interval == 0:
@@ -350,6 +336,9 @@ def train_dlgan(global_step=0):
                     writer.add_scalars('Train Perplexity', {'mean': np.mean(train_res_perplexity),
                                                             'std': np.std(train_res_perplexity)}, global_step)
 
+                # create the results directory if it does not exist
+                if not os.path.exists(f'./results/dlgan-{model_tag}'):
+                    os.makedirs(f'./results/dlgan-{model_tag}')
                 # save the images
                 if global_step % log_interval == 0:
                     torchvisionutils.save_image(originals, f'./results/dlgan-{model_tag}/target_{global_step}.png')
@@ -429,6 +418,12 @@ def train_dlgan(global_step=0):
                     Perplexity=np.mean(train_res_perplexity[-100:]),
                     global_step=global_step
                 )
+
+            # create the checkpoints directory if it does not exist
+            if not os.path.exists(f'./checkpoints/dlgan-{model_tag}'):
+                os.makedirs(f'./checkpoints/dlgan-{model_tag}')
+
+            # save the model checkpoint
             torch.save({ "model": dlgan.state_dict(),
                          "global_step": global_step},f'./checkpoints/dlgan-{model_tag}/epoch_{(epoch + 1)}.pt')
 
