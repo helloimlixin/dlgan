@@ -14,17 +14,16 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #  ==============================================================================
+from torch.utils.data import Dataset
 import os
-
 import numpy as np
 from PIL import Image
-from torch.utils.data import Dataset
 import albumentations
 
-class FFHQDataset(Dataset):
+class CelebA(Dataset):
     '''Get training data_paths from the FFHQ dataset.'''
 
-    def __init__(self, root, size=512, crop_size=256, transform=None):
+    def __init__(self, root, size=128, crop_size=128, transform=None):
         self.root = root
         self.size = size
         self.crop_size = crop_size

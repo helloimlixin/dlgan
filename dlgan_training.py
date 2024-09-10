@@ -52,9 +52,9 @@ torch.manual_seed(0)
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 64
-val_batch_size = 16
-num_epochs = 50
+train_batch_size = 256
+val_batch_size = 64
+num_epochs = 200
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -85,9 +85,9 @@ validation_on = True
 
 validation_interval = 1000 if validation_on else sys.maxsize
 
-load_pretrained = False
+load_pretrained = True
 ckpt = 0
-ckpt_start = 20
+ckpt_start = 1
 
 if load_pretrained:
     ckpt = ckpt_start
@@ -220,14 +220,13 @@ def train_dlgan(global_step=0):
 
     for epoch in range(ckpt, num_epochs):
         with tqdm(range(len(train_loader)), colour='green') as pbar:
-            for i, x in zip(pbar, train_loader):
+            for i, (x, _) in zip(pbar, train_loader):
                 global_step = epoch * len(train_loader) + i + 1
 
                 # sample the mini-batch
                 # x = x.to(device)
 
                 # for cifar10 loader
-                (x, _) = next(iter(train_loader))
                 x = x.to(device)
 
                 # forward pass
@@ -355,7 +354,11 @@ def train_dlgan(global_step=0):
                         val_res_recon_lpips = []
                         val_res_perplexity = []
 
-                        x_val = next(iter(val_loader))
+                        # x_val = next(iter(val_loader))
+
+                        # for cifar10 loader
+                        (x_val, _) = next(iter(val_loader))
+
                         x_val = x_val.to(device)
 
                         # forward pass

@@ -23,8 +23,12 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import utils as torchvisionutils
 from torchvision.datasets import ImageFolder
 from tqdm import tqdm
+
+from dataloaders.celebahq import CelebA
+from dataloaders.cifar10 import *
 from dataloaders.flowers import FlowersDataset
 from dataloaders.ffhq import FFHQDataset
+from dlgan_training import val_loader
 from flip.pytorch.flip_loss import LDRFLIPLoss
 from models.lpips import LPIPS
 from skimage.metrics import structural_similarity as ssim
@@ -41,7 +45,7 @@ import sys
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 8
+train_batch_size = 32
 test_batch_size = 4
 num_epochs = 20
 
@@ -49,7 +53,7 @@ num_hiddens = 128
 num_residual_hiddens = 32
 num_residual_layers = 2
 
-embedding_dim = 64
+embedding_dim = 16
 num_embeddings = 512
 
 commitment_cost = 0.25
@@ -59,7 +63,7 @@ decay = 0.99
 model_tag = 'vanilla'
 
 if decay > 0.:
-    model_tag = 'ema'
+    model_tag = 'ema-inpainting'
 
 learning_rate = 1e-4
 
@@ -73,7 +77,7 @@ l2_loss_factor = 0.5
 lpips_loss_factor = 1 - l2_loss_factor
 
 discriminator_factor = 0.01
-disc_start = 80000000000
+disc_start = 100000000
 
 validation_on = True
 
@@ -83,7 +87,7 @@ load_pretrained = False
 
 ckpt = 0
 
-ckpt_start = 12
+ckpt_start = 20
 
 if load_pretrained:
     ckpt = ckpt_start
@@ -94,36 +98,61 @@ log_interval = 100
 
 # data_paths loaders
 # train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
+# val_loader = get_cifar10_test_loader(batch_size=test_batch_size)()
 
 # flowers_dataset = FlowersDataset(root='./data/flowers')
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
-# test_loader = get_cifar10_test_loader(batch_size=test_batch_size)()
 
 # define the training, validation, and test datasets
-ffhq_dataset_train = FFHQDataset(root='./data/ffhq-512x512/train')
-ffhq_dataset_val = FFHQDataset(root='./data/ffhq-512x512/val', crop_size=512)
-ffhq_dataset_test = FFHQDataset(root='./data/ffhq-512x512/test', crop_size=512)
+# ffhq_dataset_train = FFHQDataset(root='./data/ffhq-512x512/train')
+# ffhq_dataset_val = FFHQDataset(root='./data/ffhq-512x512/val', crop_size=512)
+# ffhq_dataset_test = FFHQDataset(root='./data/ffhq-512x512/test', crop_size=512)
 
-train_loader = DataLoader(ffhq_dataset_train,
+# train_loader = DataLoader(ffhq_dataset_train,
+#                           batch_size=train_batch_size,
+#                           shuffle=True,
+#                           pin_memory=False,
+#                           drop_last=True,
+#                           num_workers=0)
+#
+# val_loader = DataLoader(ffhq_dataset_val,
+#                         batch_size=test_batch_size,
+#                         shuffle=False,
+#                         pin_memory=True,
+#                         drop_last=True,
+#                         num_workers=0)
+#
+# test_loader = DataLoader(ffhq_dataset_test,
+#                          batch_size=test_batch_size,
+#                          shuffle=False,
+#                          pin_memory=True,
+#                          drop_last=True,
+#                          num_workers=0)
+
+celebahq_dataset_train = CelebA(root='./data/CelebAMask-HQ/CelebA-HQ-img/train', size=128, crop_size=128)
+celebahq_dataset_val = CelebA(root='./data/CelebAMask-HQ/CelebA-HQ-img/val', size=256, crop_size=256)
+celebahq_dataset_test = CelebA(root='./data/CelebAMask-HQ/CelebA-HQ-img/test', size=256, crop_size=256)
+
+train_loader = DataLoader(celebahq_dataset_train,
                           batch_size=train_batch_size,
                           shuffle=True,
                           pin_memory=False,
                           drop_last=True,
                           num_workers=0)
 
-val_loader = DataLoader(ffhq_dataset_val,
+val_loader = DataLoader(celebahq_dataset_val,
                         batch_size=test_batch_size,
                         shuffle=False,
                         pin_memory=True,
                         drop_last=True,
                         num_workers=0)
 
-test_loader = DataLoader(ffhq_dataset_test,
-                         batch_size=test_batch_size,
-                         shuffle=False,
-                         pin_memory=True,
-                         drop_last=True,
-                         num_workers=0)
+test_loader = DataLoader(celebahq_dataset_test,
+                        batch_size=test_batch_size,
+                        shuffle=False,
+                        pin_memory=True,
+                        drop_last=True,
+                        num_workers=0)
 
 # vqgan
 vqgan = VQGAN(in_channels=3,
@@ -156,6 +185,17 @@ def loss_function(recon_x, x):
     recon_error = F.mse_loss(recon_x, x)
     return recon_error
 
+
+def create_mask(x, mask_ratio):
+    '''Create a bitmask that masks out random rectangular regions of the images.'''
+    mask = torch.full_like(x, 1.0)
+    mask_size = int(mask_ratio * x.size(-1))
+    x1 = np.random.randint(0, x.size(-1) - mask_size)
+    y1 = np.random.randint(0, x.size(-1) - mask_size)
+    mask[:, :, x1:x1 + mask_size, y1:y1 + mask_size] = 0.0
+    return mask
+
+
 def train_vqgan(global_step=0):
     '''Train the vqgan.'''
     train_res_recon_error = []
@@ -184,10 +224,16 @@ def train_vqgan(global_step=0):
                 global_step = epoch * len(train_loader) + i + 1
 
                 # sample the mini-batch
+                # x = x.to(device)
+
                 x = x.to(device)
 
+                # create a bitmask that masks out random rectangular regions of the images
+                mask = create_mask(x, mask_ratio=0.5)
+                x_masked = x * mask
+
                 # forward pass
-                vq_loss, x_recon, perplexity, quantized = vqgan(x)
+                vq_loss, x_recon, perplexity, quantized = vqgan(x_masked)
                 perceptual_loss = perceptual_loss_criterion(x_recon, x).mean()
 
                 recon_error = l2_loss_factor * loss_function(x_recon, x) + lpips_loss_factor * perceptual_loss
@@ -220,6 +266,7 @@ def train_vqgan(global_step=0):
                 scheduler.step()
 
                 originals = x + 0.5  # add 0.5 to match the range of the original images [0, 1]
+                masked = x_masked + 0.5  # add 0.5 to match the range of the original images [0, 1]
                 # low_res = x_lr + 0.5 # add 0.5 to match the range of the original images [0, 1]
                 # inputs = x_hr + 0.5 # add 0.5 to match the range of the original images [0, 1]
                 reconstructions = x_recon + 0.5  # add 0.5 to match the range of the original images [0, 1]
@@ -258,13 +305,13 @@ def train_vqgan(global_step=0):
                 if global_step % log_interval == 0:
                     # writer.add_images('Train Low Resolution Images', low_res, i+1)
                     writer.add_images('Train Target Images', originals, global_step)
+                    writer.add_images('Train Masked Images', masked, global_step)
                     # writer.add_images('Train Input Images', inputs, i+1)
                     writer.add_images('Train Reconstructed Images', reconstructions, global_step)
 
                 # save the codebook
                 if global_step % log_interval == 0:
-                    writer.add_embedding(quantized.view(train_batch_size, -1),
-                                         label_img=originals,
+                    writer.add_embedding(vqgan._vq_bottleneck._embedding.weight.data,
                                          global_step=global_step)
 
                 # save the gradient visualization
@@ -276,8 +323,8 @@ def train_vqgan(global_step=0):
 
                 # save the images
                 # create the results directory if it does not exist
-                if not os.path.exists('./results/vqgan-{model_tag}'):
-                    os.makedirs('./results/vqgan-{model_tag}')
+                if not os.path.exists(f'./results/vqgan-{model_tag}'):
+                    os.makedirs(f'./results/vqgan-{model_tag}')
 
                 if global_step % log_interval == 0:
                     torchvisionutils.save_image(originals, f'./results/vqgan-{model_tag}/target_{global_step}.png')
@@ -298,8 +345,12 @@ def train_vqgan(global_step=0):
                         x_val = next(iter(val_loader))
                         x_val = x_val.to(device)
 
+                        # create a random mask
+                        mask_val = create_mask(x_val, mask_ratio=0.5)
+                        x_masked_val = x_val * mask_val
+
                         # forward pass
-                        dl_loss_val, data_recon_val, perplexity_val, quantized_val = vqgan(x_val)
+                        dl_loss_val, data_recon_val, perplexity_val, quantized_val = vqgan(x_masked_val)
                         perceptual_loss_val = perceptual_loss_criterion(data_recon_val, x_val).mean()
 
                         recon_error_val = l2_loss_factor * loss_function(data_recon_val,
@@ -309,6 +360,7 @@ def train_vqgan(global_step=0):
                         flip_val = flip_loss_criterion(data_recon_val, x_val)
 
                         originals_val = x_val + 0.5
+                        masked_val = x_masked_val + 0.5
                         reconstructions_val = data_recon_val + 0.5
 
                         psnr_val = 10 * torch.log10(1 / loss_function(data_recon_val, x_val))
@@ -332,6 +384,7 @@ def train_vqgan(global_step=0):
 
                         # save the reconstructed images
                         writer.add_images('Val Target Images', originals_val, global_step)
+                        writer.add_images('Val Masked Images', masked_val, global_step)
                         writer.add_images('Val Reconstructed Images', reconstructions_val, global_step)
 
                         # save the validation information
@@ -366,8 +419,8 @@ def train_vqgan(global_step=0):
 
             # save the model
             # create the checkpoints directory if it does not exist
-            if not os.path.exists('./checkpoints/vqgan-{model_tag}'):
-                os.makedirs('./checkpoints/vqgan-{model_tag}')
+            if not os.path.exists(f'./checkpoints/vqgan-{model_tag}'):
+                os.makedirs(f'./checkpoints/vqgan-{model_tag}')
 
             torch.save({"model": vqgan.state_dict(),
                         "global_step": global_step}, f'./checkpoints/vqgan-{model_tag}/epoch_{(epoch + 1)}.pt')
