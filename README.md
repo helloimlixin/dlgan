@@ -1,2 +1,2 @@
-# TRL-VAE
-Variational Autoencoder with Tensor Representation Learning
+# DL-VAE
+Variational Autoencoder with Dictionary Learning
