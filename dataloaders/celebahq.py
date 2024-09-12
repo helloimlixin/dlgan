@@ -32,7 +32,7 @@ class CelebA(Dataset):
         self.data_paths.sort()
 
         self.rescaler = albumentations.SmallestMaxSize(max_size=self.size)
-        self.random_crop = albumentations.CenterCrop(height=self.crop_size, width=self.crop_size)
+        self.random_crop = albumentations.RandomCrop(height=self.crop_size, width=self.crop_size)
         self.preprocess = albumentations.Compose([self.rescaler,
                                                   self.random_crop])
 

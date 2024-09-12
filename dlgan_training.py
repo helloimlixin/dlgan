@@ -54,7 +54,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 256
 val_batch_size = 64
-num_epochs = 200
+num_epochs = 400
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -83,11 +83,11 @@ disc_start = 1000000000
 
 validation_on = True
 
-validation_interval = 1000 if validation_on else sys.maxsize
+validation_interval = 1 if validation_on else sys.maxsize
 
 load_pretrained = True
 ckpt = 0
-ckpt_start = 1
+ckpt_start = 200
 
 if load_pretrained:
     ckpt = ckpt_start
@@ -101,8 +101,8 @@ model_tag = 'odl-cifar10'
 # data_paths loaders
 # flowers_dataset = FlowersDataset(root='./data/flowers')
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
-train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
-val_loader = get_cifar10_test_loader(batch_size=val_batch_size)()
+# train_loader, data_variance = get_cifar10_train_loader(batch_size=train_batch_size)()
+# val_loader = get_cifar10_test_loader(batch_size=val_batch_size)()
 
 # define the training, validation, and test datasets
 # ffhq_dataset_train = FFHQDataset(root='./data/ffhq-512x512/train')

@@ -28,7 +28,6 @@ from dataloaders.celebahq import CelebA
 from dataloaders.cifar10 import *
 from dataloaders.flowers import FlowersDataset
 from dataloaders.ffhq import FFHQDataset
-from dlgan_training import val_loader
 from flip.pytorch.flip_loss import LDRFLIPLoss
 from models.lpips import LPIPS
 from skimage.metrics import structural_similarity as ssim
@@ -45,9 +44,9 @@ import sys
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 32
-test_batch_size = 4
-num_epochs = 20
+train_batch_size = 16
+test_batch_size = 8
+num_epochs = 120
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -63,7 +62,7 @@ decay = 0.99
 model_tag = 'vanilla'
 
 if decay > 0.:
-    model_tag = 'ema-inpainting'
+    model_tag = 'ema-inpainting-ffhq'
 
 learning_rate = 1e-4
 
@@ -83,11 +82,11 @@ validation_on = True
 
 validation_interval = 1000 if validation_on else sys.maxsize
 
-load_pretrained = False
+load_pretrained = True
 
 ckpt = 0
 
-ckpt_start = 20
+ckpt_start = 100
 
 if load_pretrained:
     ckpt = ckpt_start
@@ -104,55 +103,55 @@ log_interval = 100
 # train_loader = DataLoader(flowers_dataset, batch_size=train_batch_size, shuffle=True)
 
 # define the training, validation, and test datasets
-# ffhq_dataset_train = FFHQDataset(root='./data/ffhq-512x512/train')
-# ffhq_dataset_val = FFHQDataset(root='./data/ffhq-512x512/val', crop_size=512)
-# ffhq_dataset_test = FFHQDataset(root='./data/ffhq-512x512/test', crop_size=512)
+ffhq_dataset_train = FFHQDataset(root='./data/ffhq-512x512/train')
+ffhq_dataset_val = FFHQDataset(root='./data/ffhq-512x512/val', size=128, crop_size=128)
+ffhq_dataset_test = FFHQDataset(root='./data/ffhq-512x512/test', crop_size=512)
 
-# train_loader = DataLoader(ffhq_dataset_train,
+train_loader = DataLoader(ffhq_dataset_train,
+                          batch_size=train_batch_size,
+                          shuffle=False,
+                          pin_memory=False,
+                          drop_last=True,
+                          num_workers=0)
+
+val_loader = DataLoader(ffhq_dataset_val,
+                        batch_size=test_batch_size,
+                        shuffle=False,
+                        pin_memory=True,
+                        drop_last=True,
+                        num_workers=0)
+
+test_loader = DataLoader(ffhq_dataset_test,
+                         batch_size=test_batch_size,
+                         shuffle=False,
+                         pin_memory=True,
+                         drop_last=True,
+                         num_workers=0)
+
+# celebahq_dataset_train = CelebA(root='./data/CelebAMask-HQ/CelebA-HQ-img/train', size=128, crop_size=128)
+# celebahq_dataset_val = CelebA(root='./data/CelebAMask-HQ/CelebA-HQ-img/val', size=256, crop_size=256)
+# celebahq_dataset_test = CelebA(root='./data/CelebAMask-HQ/CelebA-HQ-img/test', size=256, crop_size=256)
+
+# train_loader = DataLoader(celebahq_dataset_train,
 #                           batch_size=train_batch_size,
-#                           shuffle=True,
+#                           shuffle=False,
 #                           pin_memory=False,
 #                           drop_last=True,
 #                           num_workers=0)
 #
-# val_loader = DataLoader(ffhq_dataset_val,
+# val_loader = DataLoader(celebahq_dataset_val,
 #                         batch_size=test_batch_size,
 #                         shuffle=False,
 #                         pin_memory=True,
 #                         drop_last=True,
 #                         num_workers=0)
 #
-# test_loader = DataLoader(ffhq_dataset_test,
-#                          batch_size=test_batch_size,
-#                          shuffle=False,
-#                          pin_memory=True,
-#                          drop_last=True,
-#                          num_workers=0)
-
-celebahq_dataset_train = CelebA(root='./data/CelebAMask-HQ/CelebA-HQ-img/train', size=128, crop_size=128)
-celebahq_dataset_val = CelebA(root='./data/CelebAMask-HQ/CelebA-HQ-img/val', size=256, crop_size=256)
-celebahq_dataset_test = CelebA(root='./data/CelebAMask-HQ/CelebA-HQ-img/test', size=256, crop_size=256)
-
-train_loader = DataLoader(celebahq_dataset_train,
-                          batch_size=train_batch_size,
-                          shuffle=True,
-                          pin_memory=False,
-                          drop_last=True,
-                          num_workers=0)
-
-val_loader = DataLoader(celebahq_dataset_val,
-                        batch_size=test_batch_size,
-                        shuffle=False,
-                        pin_memory=True,
-                        drop_last=True,
-                        num_workers=0)
-
-test_loader = DataLoader(celebahq_dataset_test,
-                        batch_size=test_batch_size,
-                        shuffle=False,
-                        pin_memory=True,
-                        drop_last=True,
-                        num_workers=0)
+# test_loader = DataLoader(celebahq_dataset_test,
+#                         batch_size=test_batch_size,
+#                         shuffle=False,
+#                         pin_memory=True,
+#                         drop_last=True,
+#                         num_workers=0)
 
 # vqgan
 vqgan = VQGAN(in_channels=3,
@@ -187,11 +186,11 @@ def loss_function(recon_x, x):
 
 
 def create_mask(x, mask_ratio):
-    '''Create a bitmask that masks out random rectangular regions of the images.'''
+    '''Create a bitmask that masks out center rectangular regions of the images.'''
     mask = torch.full_like(x, 1.0)
     mask_size = int(mask_ratio * x.size(-1))
-    x1 = np.random.randint(0, x.size(-1) - mask_size)
-    y1 = np.random.randint(0, x.size(-1) - mask_size)
+    x1 = mask.size(-1) // 2 - mask_size // 2
+    y1 = mask.size(-2) // 2 - mask_size // 2
     mask[:, :, x1:x1 + mask_size, y1:y1 + mask_size] = 0.0
     return mask
 
@@ -228,9 +227,8 @@ def train_vqgan(global_step=0):
 
                 x = x.to(device)
 
-                # create a bitmask that masks out random rectangular regions of the images
-                mask = create_mask(x, mask_ratio=0.5)
-                x_masked = x * mask
+                # create a bitmask that masks out center rectangular regions of the images
+                x_masked = x * create_mask(x, mask_ratio=0.25)
 
                 # forward pass
                 vq_loss, x_recon, perplexity, quantized = vqgan(x_masked)
@@ -346,8 +344,7 @@ def train_vqgan(global_step=0):
                         x_val = x_val.to(device)
 
                         # create a random mask
-                        mask_val = create_mask(x_val, mask_ratio=0.5)
-                        x_masked_val = x_val * mask_val
+                        x_masked_val = x_val * create_mask(x_val, mask_ratio=0.25)
 
                         # forward pass
                         dl_loss_val, data_recon_val, perplexity_val, quantized_val = vqgan(x_masked_val)
