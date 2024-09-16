@@ -5,7 +5,7 @@
 #   - Van Den Oord, A., & Vinyals, O. (2017). Neural discrete representation learning.
 #       Advances in neural information processing systems, 30.
 #
-#  Copyright (C) 2024 Xin Li
+#  Codebase for 2025 WACV Submissions
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.

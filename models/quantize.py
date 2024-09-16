@@ -1,6 +1,6 @@
 #  ==============================================================================
 #  Description: This file defines the vector quantizer module of the vqvae.
-#  Copyright (C) 2024 Xin Li
+#  Codebase for 2025 WACV Submissions
 #
 # References:
 #   - Van Den Oord, A., & Vinyals, O. (2017). Neural discrete representation learning.

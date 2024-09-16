@@ -5,7 +5,7 @@
 #     - Esser, P., Rombach, R., & Ommer, B. (2021).
 #         Taming Transformers for High-Resolution Image Synthesis. arXiv preprint arXiv:2103.17239.
 #     - PatchGAN discriminator: https://arxiv.org/pdf/1611.07004.pdf.
-#  Copyright (C) 2024 Xin Li
+#  Codebase for 2025 WACV Submissions
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.

@@ -10,7 +10,7 @@
 #   - https://github.com/google-deepmind/sonnet/blob/v2/examples/vqvae_example.ipynb.
 #   - https://colab.research.google.com/github/zalandoresearch/pytorch-vq-vae/blob/master/vq-vae.ipynb.
 #
-#  Copyright (C) 2024 Xin Li
+#  Codebase for 2025 WACV Submissions
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
