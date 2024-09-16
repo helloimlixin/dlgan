@@ -86,7 +86,7 @@ load_pretrained = True
 
 ckpt = 0
 
-ckpt_start = 1
+ckpt_start = 8
 
 if load_pretrained:
     ckpt = ckpt_start

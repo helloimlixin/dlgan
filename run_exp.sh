@@ -2,7 +2,7 @@
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:4
 #SBATCH --requeue
-#SBATCH --job-name=xl598-ffhq-512x512-test
+#SBATCH --job-name=[username]-ffhq-512x512-test
 #SBATCH --nodes=1
 #SBATCH --mem=16000
 #SBATCH --time=02:00:00

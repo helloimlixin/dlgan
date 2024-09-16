@@ -1,2 +1,0 @@
-/var/lib/slurm/slurmd/job34584249/slurm_script: line 13: syntax error near unexpected token `('
-/var/lib/slurm/slurmd/job34584249/slurm_script: line 13: `srun python print('hello')'
