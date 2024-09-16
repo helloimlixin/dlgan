@@ -56,6 +56,10 @@ class VectorQuantizer(nn.Module):
         # convert z_e from B z_e H z_e W z_e C to BHW z_e C, which is required by the quantization bottleneck.
         ze_flattened = z_e.view(-1, self._embedding_dim)
 
+        ze_flattened_mean = ze_flattened.mean(0, keepdim=True) # center the input vectors
+
+        ze_flattened -= ze_flattened_mean
+
         # compute the distances between the input vectors and the _embedding vectors
         # distances: BHW z_e _num_embeddings
         flat_input_l2_squared = torch.sum(ze_flattened**2, dim=1, keepdim=True) # BHW z_e 1
@@ -71,7 +75,7 @@ class VectorQuantizer(nn.Module):
         encodings.scatter_(1, encoding_indices, 1) # one-hot encoding
 
         # z_q: BHW z_e C
-        z_q = torch.matmul(encodings, self._embedding.weight).view(input_shape) # B z_e H z_e W z_e C
+        z_q = (ze_flattened_mean + torch.matmul(encodings, self._embedding.weight)).view(input_shape) # B z_e H z_e W z_e C
 
         # compute the commitment loss
         # commitment_loss: B z_e 1 z_e H z_e W

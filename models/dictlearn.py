@@ -61,17 +61,17 @@ class DictLearn(nn.Module):
 
         stride = kernel_size # non-overlapping patches
 
+        ze_mean = z_e.mean(dim=1, keepdim=True)
+        ze_centered = z_e - ze_mean
+
         # break the input tensor into patches
-        patches = F.unfold(z_e, kernel_size=kernel_size, stride=stride).permute(2, 0, 1).contiguous()
+        patches = F.unfold(ze_centered, kernel_size=kernel_size, stride=stride).permute(2, 0, 1).contiguous()
         patches_shape = patches.shape
         patches = patches.view(patches.shape[0] * patches.shape[1], self._embedding_dim, kernel_size, kernel_size).contiguous()
 
         # permute
         z_e = z_e.permute(0, 2, 3, 1).contiguous() # convert from bchw to bhwc
         ze_shape = z_e.shape
-
-        # Flatten input
-        z_e_flattened = z_e.view(self._embedding_dim, -1)  # convert to column-major order, i.e., each column is a data point
 
         # Flatten patches
         patches = patches.view(self._embedding_dim, -1)  # convert to column-major order, i.e., each column is a data point
@@ -98,7 +98,7 @@ class DictLearn(nn.Module):
         recon = recon.view(patches_shape).permute(1, 2, 0).contiguous() # convert to patches
 
         # fold back the patches
-        recon = F.fold(recon, (ze_shape[1], ze_shape[2]), kernel_size=kernel_size, stride=stride).permute(0, 2, 3, 1).contiguous()
+        recon = (ze_mean + F.fold(recon, (ze_shape[1], ze_shape[2]), kernel_size=kernel_size, stride=stride)).permute(0, 2, 3, 1).contiguous()
 
         # compute loss
         e_latent_loss = F.mse_loss(recon.detach(), z_e)  # latent loss from encoder

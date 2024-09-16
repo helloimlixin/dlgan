@@ -1,6 +1,6 @@
 #  ==============================================================================
 #  Description: Helper functions for the vqvae.
-#  Copyright (C) 2024 Xin Li
+#  Codebase for 2025 WACV Submission
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -52,9 +52,9 @@ torch.manual_seed(0)
 os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 
 # hyperparameters
-train_batch_size = 256
-val_batch_size = 64
-num_epochs = 400
+train_batch_size = 16
+val_batch_size = 8
+num_epochs = 100
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -83,11 +83,11 @@ disc_start = 1000000000
 
 validation_on = True
 
-validation_interval = 1 if validation_on else sys.maxsize
+validation_interval = 1000 if validation_on else sys.maxsize
 
 load_pretrained = True
 ckpt = 0
-ckpt_start = 200
+ckpt_start = 95
 
 if load_pretrained:
     ckpt = ckpt_start
@@ -96,7 +96,7 @@ else:
 
 log_interval = 100
 
-model_tag = 'odl-cifar10'
+model_tag = 'odln-ffhq-inpainting'
 
 # data_paths loaders
 # flowers_dataset = FlowersDataset(root='./data/flowers')
@@ -105,30 +105,30 @@ model_tag = 'odl-cifar10'
 # val_loader = get_cifar10_test_loader(batch_size=val_batch_size)()
 
 # define the training, validation, and test datasets
-# ffhq_dataset_train = FFHQDataset(root='./data/ffhq-512x512/train')
-# ffhq_dataset_val = FFHQDataset(root='./data/ffhq-512x512/val', crop_size=512)
-# ffhq_dataset_test = FFHQDataset(root='./data/ffhq-512x512/test', crop_size=512)
-#
-# train_loader = DataLoader(ffhq_dataset_train,
-#                           batch_size=train_batch_size,
-#                           shuffle=True,
-#                           pin_memory=False,
-#                           drop_last=True,
-#                           num_workers=0)
-#
-# val_loader = DataLoader(ffhq_dataset_val,
-#                         batch_size=val_batch_size,
-#                         shuffle=False,
-#                         pin_memory=True,
-#                         drop_last=True,
-#                         num_workers=0)
-#
-# test_loader = DataLoader(ffhq_dataset_test,
-#                          batch_size=val_batch_size,
-#                          shuffle=False,
-#                          pin_memory=True,
-#                          drop_last=True,
-#                          num_workers=0)
+ffhq_dataset_train = FFHQDataset(root='./data/ffhq-512x512/train')
+ffhq_dataset_val = FFHQDataset(root='./data/ffhq-512x512/val', size=128, crop_size=128)
+ffhq_dataset_test = FFHQDataset(root='./data/ffhq-512x512/test', crop_size=512)
+
+train_loader = DataLoader(ffhq_dataset_train,
+                          batch_size=train_batch_size,
+                          shuffle=False,
+                          pin_memory=False,
+                          drop_last=True,
+                          num_workers=0)
+
+val_loader = DataLoader(ffhq_dataset_val,
+                        batch_size=val_batch_size,
+                        shuffle=False,
+                        pin_memory=True,
+                        drop_last=True,
+                        num_workers=0)
+
+test_loader = DataLoader(ffhq_dataset_test,
+                         batch_size=val_batch_size,
+                         shuffle=False,
+                         pin_memory=True,
+                         drop_last=True,
+                         num_workers=0)
 
 # train_size = int(0.999 * len(flowers_dataset))
 # val_size = int(0.0008 * len(flowers_dataset))
@@ -195,6 +195,17 @@ def loss_function(recon_x, x):
     recon_error = F.mse_loss(recon_x, x)
     return recon_error
 
+
+def create_mask(x, mask_ratio):
+    '''Create a bitmask that masks out center rectangular regions of the images.'''
+    mask = torch.full_like(x, 1.0)
+    mask_size = int(mask_ratio * x.size(-1))
+    x1 = mask.size(-1) // 2 - mask_size // 2
+    y1 = mask.size(-2) // 2 - mask_size // 2
+    mask[:, :, x1:x1 + mask_size, y1:y1 + mask_size] = 0.0
+    return mask
+
+
 def train_dlgan(global_step=0):
     '''Train the dlgan.'''
     train_res_recon_error = []
@@ -220,7 +231,7 @@ def train_dlgan(global_step=0):
 
     for epoch in range(ckpt, num_epochs):
         with tqdm(range(len(train_loader)), colour='green') as pbar:
-            for i, (x, _) in zip(pbar, train_loader):
+            for i, x in zip(pbar, train_loader):
                 global_step = epoch * len(train_loader) + i + 1
 
                 # sample the mini-batch
@@ -229,13 +240,16 @@ def train_dlgan(global_step=0):
                 # for cifar10 loader
                 x = x.to(device)
 
+                # create a bitmask that masks out center rectangular regions of the images
+                x_masked = x * create_mask(x, mask_ratio=0.25)
+
                 # forward pass
                 # x_lr = F.interpolate(x, scale_factor=0.25, mode='bilinear', align_corners=False)
                 # x_hr = F.interpolate(x_lr, scale_factor=4, mode='bilinear', align_corners=False)
-                dl_loss, x_recon, latents, perplexity, encodings = dlgan(x, global_step)
+                dl_loss, x_recon, latents, perplexity, encodings = dlgan(x_masked, global_step)
                 perceptual_loss = perceptual_loss_criterion(x_recon, x).mean()
 
-                recon_error = (l2_loss_factor * loss_function(x_recon, x) + lpips_loss_factor * perceptual_loss) / data_variance
+                recon_error = (l2_loss_factor * loss_function(x_recon, x) + lpips_loss_factor * perceptual_loss)
 
                 # compute the NVIDIA FLIP metric
                 flip_loss = flip_loss_criterion(x_recon, x)
@@ -269,6 +283,7 @@ def train_dlgan(global_step=0):
                 originals = x + 0.5 # add 0.5 to match the range of the original images [0, 1]
                 # low_res = x_lr + 0.5 # add 0.5 to match the range of the original images [0, 1]
                 # inputs = x_hr + 0.5 # add 0.5 to match the range of the original images [0, 1]
+                masked = x_masked + 0.5 # add 0.5 to match the range of the original images [0, 1]
                 reconstructions = x_recon + 0.5 # add 0.5 to match the range of the original images [0, 1]
 
                 psnr = 10 * torch.log10(1 / loss_function(x_recon, x))
@@ -306,6 +321,7 @@ def train_dlgan(global_step=0):
                     # writer.add_images('Train Low Resolution Images', low_res, i+1)
                     writer.add_images('Train Target Images', originals, global_step)
                     # writer.add_images('Train Input Images', inputs, i+1)
+                    writer.add_images('Train Masked Images', masked, global_step)
                     writer.add_images('Train Reconstructed Images', reconstructions, global_step)
 
                 # save the codebook
@@ -357,12 +373,14 @@ def train_dlgan(global_step=0):
                         # x_val = next(iter(val_loader))
 
                         # for cifar10 loader
-                        (x_val, _) = next(iter(val_loader))
+                        x_val = next(iter(val_loader))
 
                         x_val = x_val.to(device)
 
+                        x_val_masked = x_val * create_mask(x_val, mask_ratio=0.25)
+
                         # forward pass
-                        dl_loss_val, x_recon_val, latents_val, perplexity_val, encodings_val = dlgan(x_val, global_step)
+                        dl_loss_val, x_recon_val, latents_val, perplexity_val, encodings_val = dlgan(x_val_masked, global_step)
                         perceptual_loss_val = perceptual_loss_criterion(x_recon_val, x_val).mean()
 
                         recon_error_val = l2_loss_factor * loss_function(x_recon_val, x_val) + lpips_loss_factor * perceptual_loss_val
@@ -372,6 +390,7 @@ def train_dlgan(global_step=0):
 
                         originals_val = x_val + 0.5
                         reconstructions_val = x_recon_val + 0.5
+                        masked_val = x_val_masked + 0.5
 
                         psnr_val = 10 * torch.log10(1 / loss_function(x_recon_val, x_val))
 
@@ -394,6 +413,7 @@ def train_dlgan(global_step=0):
                         # save the reconstructed images
                         writer.add_images('Val Target Images', originals_val, global_step)
                         writer.add_images('Val Reconstructed Images', reconstructions_val, global_step)
+                        writer.add_images('Val Masked Images', masked_val, global_step)
 
                         # save the validation information
                         writer.add_scalar('Val Recon Error', recon_error_val.item(), global_step)

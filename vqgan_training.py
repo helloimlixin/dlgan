@@ -46,7 +46,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 # hyperparameters
 train_batch_size = 16
 test_batch_size = 8
-num_epochs = 120
+num_epochs = 100
 
 num_hiddens = 128
 num_residual_hiddens = 32
@@ -62,7 +62,7 @@ decay = 0.99
 model_tag = 'vanilla'
 
 if decay > 0.:
-    model_tag = 'ema-inpainting-ffhq'
+    model_tag = 'emad-inpainting-ffhq'
 
 learning_rate = 1e-4
 
@@ -86,7 +86,7 @@ load_pretrained = True
 
 ckpt = 0
 
-ckpt_start = 100
+ckpt_start = 1
 
 if load_pretrained:
     ckpt = ckpt_start
