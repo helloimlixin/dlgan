@@ -120,12 +120,16 @@ class VectorQuantizerEMA(nn.Module):
         input_shape = z_e.shape
 
         # Flatten input
-        ze_flat = z_e.view(-1, self._embedding_dim)
+        ze_flattened = z_e.view(-1, self._embedding_dim)
+
+        ze_flattened_mean = ze_flattened.mean(0, keepdim=True)  # center the input vectors
+
+        ze_centered = ze_flattened - ze_flattened_mean
 
         # Calculate distances
-        distances = (torch.sum(ze_flat**2, dim=1, keepdim=True)
+        distances = (torch.sum(ze_centered**2, dim=1, keepdim=True)
                     + torch.sum(self._embedding.weight**2, dim=1)
-                    - 2 * torch.matmul(ze_flat, self._embedding.weight.t()))
+                    - 2 * torch.matmul(ze_centered, self._embedding.weight.t()))
 
         # Encoding
         encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
@@ -134,7 +138,7 @@ class VectorQuantizerEMA(nn.Module):
         encodings.scatter_(1, encoding_indices, 1)
 
         # Quantize and unflatten
-        z_q = torch.matmul(encodings, self._embedding.weight).view(input_shape)
+        z_q = (ze_flattened_mean + torch.matmul(encodings, self._embedding.weight)).view(input_shape)
 
         # Use EMA to update the embedding vectors
         if self.training:
@@ -147,7 +151,7 @@ class VectorQuantizerEMA(nn.Module):
                 (self._ema_cluster_size + self._epsilon)
                 / (n + self._num_embeddings * self._epsilon) * n)
 
-            dw = torch.matmul(encodings.t(), ze_flat)
+            dw = torch.matmul(encodings.t(), ze_centered)
             self._ema_w = nn.Parameter(self._ema_w * self._decay + (1 - self._decay) * dw)
 
             self._embedding.weight = nn.Parameter(self._ema_w / self._ema_cluster_size.unsqueeze(1))
@@ -164,71 +168,6 @@ class VectorQuantizerEMA(nn.Module):
         # convert quantized from BHWC -> BCHW
         return loss, z_q.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
 
-class VQGANCodebook(nn.Module):
-    '''Vector Quantizer module (codebook) of the vqvae.
-
-    References:
-        - Esser, P., Rombach, R., & Ommer, B. (2021).
-            Taming Transformers for High-Resolution Image Synthesis. arXiv preprint arXiv:2103.17239.
-    '''
-    def __init__(self, args):
-        super(VQGANCodebook, self).__init__()
-
-        self._num_embeddings = args.num_embeddings
-        self._embedding_dim = args.embedding_dim
-        self._beta = args.beta
-
-        self._embedding = nn.Embedding(self._num_embeddings, self._embedding_dim)
-        self._embedding.weight.data.uniform_(-1.0 / self._num_embeddings, 1.0 / self._num_embeddings)
-
-    def forward(self, z_e):
-        # z_e: B z_e C z_e H z_e W
-        z_e = z_e.permute(0, 2, 3, 1).contiguous() # B z_e H z_e W z_e C
-        # flatten the _embedding vectors
-        ze_flattened = z_e.view(-1, self._embedding_dim)
-
-        # compute the distances between the input vectors and the _embedding vectors
-        # distances: BHW z_e _num_embeddings
-        z_l2_squared = torch.sum(ze_flattened**2, dim=1, keepdim=True)
-        embedding_l2_squared = torch.sum(self._embedding.weight ** 2, dim=1)
-        inner_product = torch.matmul(ze_flattened, self._embedding.weight.t())
-        distances = z_l2_squared + embedding_l2_squared - 2 * inner_product
-
-        # encoding_indices: BHW z_e 1
-        # z = torch.argmin(distances, dim=1)
-        # # create the z_q with the _embedding vectors
-        # z_q = self._embedding(z).view(z_e.shape) # B z_e H z_e W z_e C
-
-        # encoding_indices: BHW z_e 1
-        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
-        # encoding placeholder: BHW z_e _num_embeddings
-        encodings = torch.zeros(encoding_indices.shape[0], self._num_embeddings, device=z_e.device)
-        # encodings: BHW z_e _num_embeddings
-        encodings.scatter_(1, encoding_indices, 1)  # one-hot encoding
-
-        # z_q: BHW z_e C
-        z_q = torch.matmul(encodings, self._embedding.weight).view(z_e.shape) # B z_e H z_e W z_e C
-
-        # compute the commitment loss
-        # commitment_loss: B z_e 1 z_e H z_e W
-        commitment_loss = self._beta * F.mse_loss(z_q.detach(), z_e)
-        # loss term to move the embedding vectors closer to the input vectors
-        e2z_loss = F.mse_loss(z_q, z_e.detach())
-        # compute the total loss - vq_loss: 1
-        loss = commitment_loss + e2z_loss
-
-        # save quantized outputs
-        z_q = z_e + (z_q - z_e).detach()
-
-        # average pooling over the spatial dimensions
-        # avg_probs: B z_e _num_embeddings
-        avg_probs = torch.mean(encodings, dim=0)
-
-        # codebook perplexity / usage: 1
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
-
-        # the last output is the encoding indices, which is used for the transformer training
-        return loss, z_q.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
 
 
 

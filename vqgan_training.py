@@ -82,7 +82,7 @@ validation_on = True
 
 validation_interval = 1000 if validation_on else sys.maxsize
 
-load_pretrained = True
+load_pretrained = False
 
 ckpt = 0
 
